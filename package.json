@@ -1,0 +1,16 @@
+{
+  "name": "notch",
+  "version": "1.0.0",
+  "description": "A native macOS utility inspired by [boringNotch](https://github.com/TheBoredTeam/boring.notch) that utilizes the physical display notch (or a sleek simulated notch on external screens) as an interactive music controller and dynamic island.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "playwright": "^1.64.1"
+  }
+}
