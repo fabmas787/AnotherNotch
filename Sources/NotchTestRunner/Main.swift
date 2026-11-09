@@ -663,6 +663,32 @@ func runPerformanceAndLifecycleTests() {
     let out2 = AppleScriptRunner.runSync(testScript)
     assertCondition(out1 == "notch_test" && out2 == "notch_test", "AppleScriptRunner caching returns valid output")
 
+    // Test 2e: AppleMusicService artwork export script is static, cached, and truncates file
+    let script1 = AppleMusicService.artworkExportScript
+    let script2 = AppleMusicService.artworkExportScript
+    assertCondition(script1 == script2, "AppleMusicService artwork export script must be static and identical across invocations")
+    assertCondition(script1.contains("notch_artwork_cache.jpg"), "AppleMusicService artwork export script must use stable notch_artwork_cache.jpg")
+    assertCondition(!script1.contains("notch_art_"), "AppleMusicService artwork export script must not contain dynamic UUID filename pattern")
+    assertCondition(script1.contains("set eof f to 0"), "AppleMusicService artwork export script must truncate file before writing")
+    let outScript1 = AppleScriptRunner.runSync(script1)
+    let outScript2 = AppleScriptRunner.runSync(script1)
+    assertCondition(outScript1 == outScript2, "AppleScriptRunner must execute static artwork export script without cache busting")
+
+    // Test 2f: Artwork downsampling produces thumbnail dimensions (<= 160) and does not retain multi-megabyte artworkData
+    if let bigPng = bigRep?.representation(using: .png, properties: [:]) {
+        let sampleTrack = TrackInfo(
+            title: "Full Res Song",
+            artist: "Artist",
+            album: "Album",
+            duration: 180.0,
+            source: .appleMusic
+        )
+        let processedTrack = AppleMusicService.makeThumbnailTrack(from: sampleTrack, artworkData: bigPng)
+        assertCondition(processedTrack.decodedImage != nil, "Downsampled decoded image must exist")
+        assertCondition(processedTrack.decodedImage!.size.width <= 160, "Artwork downsampling must produce thumbnail dimensions (<= 160)")
+        assertCondition(processedTrack.artworkData == nil, "Artwork processing must not retain multi-megabyte artworkData")
+    }
+
     // Test 3: Observer token lifecycle & deinit cleanup
     do {
         let music = AppleMusicService()

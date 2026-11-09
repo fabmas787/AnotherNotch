@@ -230,35 +230,54 @@ public final class AppleMusicService: MediaServiceProtocol {
         }
     }
 
-    private func fetchArtworkAsync(expectedTrackKey: String) {
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("notch_art_\(UUID().uuidString).jpg")
-        let artPath = tempURL.path
+    nonisolated public static let artworkCacheURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("notch_artwork_cache.jpg")
 
-        let exportScript = """
-        tell application "Music"
-            set f to 0
-            try
-                if (count of artworks of current track) > 0 then
-                    set art to artwork 1 of current track
-                    set rawData to raw data of art
-                    set artPath to "\(artPath)"
-                    set f to open for access (POSIX file artPath) with write permission
-                    set eof f to 0
-                    write rawData to f
+    nonisolated public static let artworkExportScript = """
+    tell application "Music"
+        set f to 0
+        try
+            if (count of artworks of current track) > 0 then
+                set art to artwork 1 of current track
+                set rawData to raw data of art
+                set artPath to "\(AppleMusicService.artworkCacheURL.path)"
+                set f to open for access (POSIX file artPath) with write permission
+                set eof f to 0
+                write rawData to f
+                close access f
+                set f to 0
+                return artPath
+            end if
+        on error
+            if f is not 0 then
+                try
                     close access f
-                    set f to 0
-                    return artPath
-                end if
-            on error
-                if f is not 0 then
-                    try
-                        close access f
-                    end try
-                end if
-            end try
-            return ""
-        end tell
-        """
+                end try
+            end if
+        end try
+        return ""
+    end tell
+    """
+
+    nonisolated public static func makeThumbnailTrack(from track: TrackInfo, artworkData: Data, thumbImage: NSImage? = nil) -> TrackInfo {
+        let thumb = thumbImage ?? TrackInfo.downsampledImage(from: artworkData, maxDimension: 160)
+        return TrackInfo(
+            id: track.id,
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            duration: track.duration,
+            artworkGradientStartHex: track.artworkGradientStartHex,
+            artworkGradientEndHex: track.artworkGradientEndHex,
+            artworkData: nil,
+            decodedImage: thumb,
+            artworkURL: nil,
+            source: track.source
+        )
+    }
+
+    private func fetchArtworkAsync(expectedTrackKey: String) {
+        let tempURL = Self.artworkCacheURL
+        let exportScript = Self.artworkExportScript
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
             defer {
@@ -266,22 +285,10 @@ public final class AppleMusicService: MediaServiceProtocol {
             }
             let path = AppleScriptRunner.runSync(exportScript)?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let path = path, !path.isEmpty, let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
-                let decoded = NSImage(data: data)
+                let thumb = TrackInfo.downsampledImage(from: data, maxDimension: 160)
                 DispatchQueue.main.async {
                     guard let self = self, self.lastArtworkTrackId == expectedTrackKey, let track = self.currentTrack else { return }
-                    self.currentTrack = TrackInfo(
-                        id: track.id,
-                        title: track.title,
-                        artist: track.artist,
-                        album: track.album,
-                        duration: track.duration,
-                        artworkGradientStartHex: track.artworkGradientStartHex,
-                        artworkGradientEndHex: track.artworkGradientEndHex,
-                        artworkData: data,
-                        decodedImage: decoded,
-                        artworkURL: nil,
-                        source: .appleMusic
-                    )
+                    self.currentTrack = Self.makeThumbnailTrack(from: track, artworkData: data, thumbImage: thumb)
                 }
             }
         }
