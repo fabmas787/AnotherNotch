@@ -361,6 +361,30 @@ func runUnifiedMediaManagerTests() {
     assertCondition(manager.currentTrack?.title == loopTrackTitle, "When repeatMode is .one, reaching duration must loop current track instead of advancing")
     assertCondition(manager.playbackPosition < 1.0, "Playback position must be reset near 0.0 on loop")
 
+    // Test 16: Collapsed visualizer progress does not stall on 1Hz (or coalesced) timer ticks
+    manager.selectedSource = .demo
+    if !manager.isPlaying {
+        manager.playPause()
+    }
+    manager.isExpanded = false
+    manager.seek(to: 10.0)
+
+    // Prime lastVisualizerTick with baseline timestamp
+    let baseTime = CACurrentMediaTime()
+    manager.updateVisualizerAndSmoothProgress(now: baseTime)
+    let initialPosition = manager.playbackPosition
+
+    // Simulate standard 1.0s collapsed tick
+    manager.updateVisualizerAndSmoothProgress(now: baseTime + 1.0)
+    let advanceAfter1s = manager.playbackPosition - initialPosition
+    assertCondition(abs(advanceAfter1s - 1.0) < 0.05, "Collapsed tick at 1.0s interval must advance playback by ~1.0s, but advanced by \(advanceAfter1s)")
+
+    // Simulate timer coalescing tick at 1.4s interval
+    let posBeforeCoalesced = manager.playbackPosition
+    manager.updateVisualizerAndSmoothProgress(now: baseTime + 2.4)
+    let advanceAfterCoalesced = manager.playbackPosition - posBeforeCoalesced
+    assertCondition(abs(advanceAfterCoalesced - 1.4) < 0.05, "Collapsed tick at 1.4s coalesced interval must advance playback by ~1.4s, but advanced by \(advanceAfterCoalesced)")
+
     print("✅ Unified Media Manager tests passed successfully.")
 }
 

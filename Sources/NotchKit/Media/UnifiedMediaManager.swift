@@ -199,14 +199,13 @@ public final class UnifiedMediaManager: ObservableObject {
 
     /// Accurate multi-band acoustic spectrum simulation with dynamic attack/decay ballistics,
     /// 4/4 musical groove transients, vocal/lead phrasing, and volume-scaled dynamic range.
-    public func updateVisualizerAndSmoothProgress() {
-        let now = CACurrentMediaTime()
+    public func updateVisualizerAndSmoothProgress(now: CFTimeInterval = CACurrentMediaTime()) {
         let dt: TimeInterval
         if lastVisualizerTick > 0 {
             let elapsed = now - lastVisualizerTick
-            dt = (elapsed > 0.0001 && elapsed < 0.25) ? elapsed : 0.016
+            dt = (elapsed > 0.0001 && elapsed <= 2.5) ? elapsed : (isExpanded ? 0.016 : 1.0)
         } else {
-            dt = 0.016
+            dt = isExpanded ? 0.016 : 1.0
         }
         lastVisualizerTick = now
 
