@@ -428,9 +428,14 @@ func runViewModelTests() {
     vm.volume = 0.65
     assertCondition(abs(vm.mediaManager.volume - 0.65) < 0.01, "ViewModel volume didSet should forward to mediaManager")
 
+    assertCondition(!vm.isMuted, "Pre-condition: vm.isMuted should be false")
+    assertCondition(!vm.mediaManager.isMuted, "Pre-condition: mediaManager.isMuted should be false")
     vm.toggleMute()
-    assertCondition(vm.isMuted, "toggleMute should toggle isMuted")
+    assertCondition(vm.isMuted, "toggleMute should toggle isMuted to true")
     assertCondition(vm.mediaManager.isMuted, "toggleMute should forward to mediaManager")
+    vm.toggleMute()
+    assertCondition(!vm.isMuted, "toggleMute again should toggle isMuted back to false")
+    assertCondition(!vm.mediaManager.isMuted, "toggleMute again should forward to mediaManager")
 
     // Test 6: Time formatting
     assertCondition(vm.formatTime(0) == "0:00", "0s format should be 0:00")
@@ -828,6 +833,21 @@ func runMediaControlsTests() {
     let standaloneFitting = standaloneHosting.fittingSize
     assertCondition(standaloneFitting.width > 0 && standaloneFitting.height > 0, "Standalone MediaControlsView should host cleanly")
 
+    // Test 7: ScrubberBarView and AudioVisualizerSymbolView hosting with system fonts
+    let scrubber = ScrubberBarView(viewModel: vm, duration: 180.0)
+    let scrubberHost = NSHostingView(rootView: scrubber)
+    assertCondition(scrubberHost.fittingSize.height > 0, "ScrubberBarView should host cleanly with system fonts")
+
+    let visualizer = AudioVisualizerSymbolView(isPlaying: true)
+    let visualizerHost = NSHostingView(rootView: visualizer)
+    assertCondition(visualizerHost.fittingSize.width > 0, "AudioVisualizerSymbolView should host cleanly with system fonts")
+
+    // Test 8: AppleMusicSlider hosting
+    var sliderVal: Double = 0.4
+    let sliderView = AppleMusicSlider(value: Binding(get: { sliderVal }, set: { sliderVal = $0 }))
+    let sliderHost = NSHostingView(rootView: sliderView)
+    assertCondition(sliderHost.fittingSize.height > 0, "AppleMusicSlider should host cleanly")
+
     print("✅ Media Controls tests passed successfully.")
 }
 
@@ -962,6 +982,14 @@ func runLyricsTests() {
     assertCondition(parsed[0].text == "First line of song", "First line text matches")
     assertCondition(abs(parsed[1].timestamp - 15.80) < 0.001, "Second timestamp should be 15.80s")
     assertCondition(parsed[2].text == "Third line of song", "Third line text matches")
+
+    // Test 1b: Verify static regex in LRCParser handles multiple sequential calls reliably
+    for i in 1...10 {
+        let repeatParsed = LRCParser.parse(sampleLrc)
+        assertCondition(repeatParsed.count == 3, "Sequential LRC parse call #\(i) must parse 3 lines")
+        assertCondition(repeatParsed[0].text == "First line of song", "Call #\(i) line 0 matches")
+        assertCondition(abs(repeatParsed[1].timestamp - 15.80) < 0.001, "Call #\(i) line 1 timestamp matches")
+    }
 
     // Test 2: Active line search and 3-line calculation
     let service = LyricsService()

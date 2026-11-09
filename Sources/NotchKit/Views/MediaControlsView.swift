@@ -48,7 +48,7 @@ public struct MediaControlsView: View {
                 viewModel.togglePlayPause()
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.custom("SFProDisplay-Semibold", size: 36)) // Larger size for primary control
+                    .font(.system(size: 36, weight: .semibold, design: .default)) // Larger size for primary control
                     .foregroundStyle(.white)
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce.down.byLayer, options: .nonRepeating, value: viewModel.playPauseBounceTrigger)
@@ -75,8 +75,8 @@ public struct MediaControlsView: View {
             }
             .help(repeatMode == .off ? "Repeat Off" : (repeatMode == .all ? "Repeat All" : "Repeat One"))
         }
-        // Global font applied to container: SF Pro Display Semibold
-        .font(.custom("SFProDisplay-Semibold", size: 22))
+        // Global font applied to container: SF Pro Semibold
+        .font(.system(size: 22, weight: .semibold, design: .default))
         .buttonStyle(.plain)
     }
 

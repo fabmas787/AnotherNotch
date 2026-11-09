@@ -6,6 +6,11 @@ public struct AppleMusicSlider: View {
     public var onEditingChanged: (Bool) -> Void = { _ in }
 
     @GestureState private var isDragging: Bool = false
+    private var _isActivelyEditing = State<Bool>(initialValue: false)
+    private var isActivelyEditing: Bool {
+        get { _isActivelyEditing.wrappedValue }
+        nonmutating set { _isActivelyEditing.wrappedValue = newValue }
+    }
 
     private let idleHeight: CGFloat = 7
     private let activeHeight: CGFloat = 14
@@ -45,17 +50,27 @@ public struct AppleMusicSlider: View {
                         state = true
                     }
                     .onChanged { gesture in
-                        onEditingChanged(true)
+                        if !isActivelyEditing {
+                            isActivelyEditing = true
+                            onEditingChanged(true)
+                        }
                         let percentage = min(max(0.0, gesture.location.x / width), 1.0)
                         let newValue = inRange.lowerBound + percentage * (inRange.upperBound - inRange.lowerBound)
                         value = newValue
                     }
                     .onEnded { _ in
+                        isActivelyEditing = false
                         onEditingChanged(false)
                     }
             )
         }
         .frame(height: hitTargetHeight)
+        .onDisappear {
+            if isActivelyEditing {
+                isActivelyEditing = false
+                onEditingChanged(false)
+            }
+        }
     }
 
     private func normalizedProgress() -> CGFloat {

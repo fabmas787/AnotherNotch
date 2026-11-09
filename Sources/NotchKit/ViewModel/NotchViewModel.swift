@@ -155,7 +155,6 @@ public final class NotchViewModel: ObservableObject {
 
     public func toggleMute() {
         self.isMuted.toggle()
-        mediaManager.setMuted(self.isMuted)
     }
 
     public func togglePin() {

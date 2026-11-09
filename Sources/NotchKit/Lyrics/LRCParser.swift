@@ -2,16 +2,17 @@ import Foundation
 
 /// Fast parser for LRC (LyRiCs) formatted text strings into synchronized `LyricLine` collections.
 public enum LRCParser {
+    // Matches [mm:ss.xx] or [mm:ss.xxx] or [mm:ss]
+    private static let tagRegex = try? NSRegularExpression(pattern: "\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\]", options: [])
+
     public static func parse(_ lrcContent: String) -> [LyricLine] {
+        guard let tagRegex = tagRegex else { return [] }
         var parsed: [(timestamp: TimeInterval, text: String)] = []
         let lines = lrcContent.components(separatedBy: .newlines)
 
-        // Matches [mm:ss.xx] or [mm:ss.xxx] or [mm:ss]
-        let tagRegex = try? NSRegularExpression(pattern: "\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\]", options: [])
-
         for rawLine in lines {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, let tagRegex = tagRegex else { continue }
+            guard !line.isEmpty else { continue }
 
             let nsLine = line as NSString
             let fullRange = NSRange(location: 0, length: nsLine.length)

@@ -41,7 +41,7 @@ public struct ScrubberBarView: View {
                 Spacer()
                 Text(viewModel.formatRemainingTime(current: activePosition, total: duration))
             }
-            .font(.custom("SFProDisplay-Semibold", size: 12))
+            .font(.system(size: 12, weight: .semibold, design: .default))
             .foregroundStyle(.white.opacity(0.6))
             .monospacedDigit()
         }
