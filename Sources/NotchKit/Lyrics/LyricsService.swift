@@ -66,15 +66,11 @@ public final class LyricsService: ObservableObject {
 
     /// Primary entry point to sync lyrics when the playing track changes.
     public func fetchLyrics(for track: TrackInfo?) {
-        activeFetchTask?.cancel()
-        activeFetchTask = nil
-
         guard let track = track,
               !track.title.isEmpty,
               track.title != "No Music Playing",
               !track.artist.isEmpty else {
             resetState()
-            currentTrackKey = ""
             return
         }
 
@@ -84,6 +80,9 @@ public final class LyricsService: ObservableObject {
 
         guard key != currentTrackKey else { return }
         currentTrackKey = key
+
+        activeFetchTask?.cancel()
+        activeFetchTask = nil
 
         // Check in-memory cache first
         if let cached = cache[key] {
@@ -120,6 +119,7 @@ public final class LyricsService: ObservableObject {
     public func resetState() {
         activeFetchTask?.cancel()
         activeFetchTask = nil
+        currentTrackKey = ""
         currentLyrics = []
         isLoading = false
         isInstrumental = false
