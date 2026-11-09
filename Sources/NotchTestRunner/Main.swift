@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import SwiftUI
+import Carbon
 import NotchKit
 
 // Import everything from Notch source code directly or test the modules
@@ -713,9 +714,29 @@ func runMediaControlsTests() {
 @MainActor
 func runStatusBarControllerTests() {
     print("\n--- Running Status Bar Controller Tests ---")
+    HotKeyManager.shared.unregisterAll()
     let vm = NotchViewModel()
     let wc = NotchWindowController(viewModel: vm)
     let controller = StatusBarController(viewModel: vm, windowController: wc)
+
+    // Verify hotkey registrations (no bare cmdKey shortcuts that hijack system hotkeys)
+    let hotkeys = HotKeyManager.shared.registrations
+    let bareCmdL = hotkeys.contains { $0.keyCode == UInt32(kVK_ANSI_L) && $0.modifiers == UInt32(cmdKey) }
+    assertCondition(!bareCmdL, "Global hotkey for bare ⌘L must not be registered (conflicts with browser address bar)")
+
+    let bareCmdP = hotkeys.contains { $0.keyCode == UInt32(kVK_ANSI_P) && $0.modifiers == UInt32(cmdKey) }
+    assertCondition(!bareCmdP, "Global hotkey for bare ⌘P must not be registered (conflicts with print)")
+
+    let chordedCmdL = hotkeys.contains { $0.keyCode == UInt32(kVK_ANSI_L) && $0.modifiers == UInt32(cmdKey | controlKey) }
+    assertCondition(chordedCmdL, "Global hotkey for ⌃⌘L should be registered for lyrics toggle")
+
+    let chordedCmdP = hotkeys.contains { $0.keyCode == UInt32(kVK_ANSI_P) && $0.modifiers == UInt32(cmdKey | controlKey) }
+    assertCondition(chordedCmdP, "Global hotkey for ⌃⌘P should be registered for pin toggle")
+
+    let chordedCmdN = hotkeys.contains { $0.keyCode == UInt32(kVK_ANSI_N) && $0.modifiers == UInt32(cmdKey | controlKey) }
+    assertCondition(chordedCmdN, "Global hotkey for ⌃⌘N should be registered for overlay toggle")
+
+    assertCondition(hotkeys.allSatisfy { ($0.modifiers & UInt32(controlKey)) != 0 }, "All registered global hotkeys must require controlKey modifier")
 
     guard let item = controller.statusItem else {
         assertCondition(false, "StatusBarController must create an NSStatusItem")

@@ -6,6 +6,17 @@ import Carbon
 public final class HotKeyManager {
     public static let shared = HotKeyManager()
 
+    public struct Registration: Equatable {
+        public let keyCode: UInt32
+        public let modifiers: UInt32
+
+        public init(keyCode: UInt32, modifiers: UInt32) {
+            self.keyCode = keyCode
+            self.modifiers = modifiers
+        }
+    }
+
+    public private(set) var registrations: [Registration] = []
     private var handlers: [UInt32: () -> Void] = [:]
     private var hotKeyRefs: [EventHotKeyRef] = []
     private var eventHandler: EventHandlerRef?
@@ -56,6 +67,7 @@ public final class HotKeyManager {
         let id = nextId
         nextId += 1
         handlers[id] = action
+        registrations.append(Registration(keyCode: keyCode, modifiers: modifiers))
 
         let hotKeyID = EventHotKeyID(signature: 0x4E544348, id: id) // "NTCH"
         var hotKeyRef: EventHotKeyRef?
@@ -78,5 +90,6 @@ public final class HotKeyManager {
         }
         hotKeyRefs.removeAll()
         handlers.removeAll()
+        registrations.removeAll()
     }
 }

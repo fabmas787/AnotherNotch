@@ -19,18 +19,15 @@ public final class StatusBarController {
 
     private func setupHotKeys() {
         // Global Hotkeys:
-        // 1. Toggle Lyrics: ⌘L (kVK_ANSI_L, cmdKey) and ⌃⌘L (kVK_ANSI_L, cmdKey | controlKey)
-        HotKeyManager.shared.register(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(cmdKey)) { [weak self] in
-            self?.toggleLyrics()
-        }
+        // Use chorded shortcuts (⌃⌘) so universal macOS shortcuts (⌘L for browser URL bar, ⌘P for print)
+        // are not intercepted system-wide. Local ⌘L and ⌘P remain handled when the NotchPanel is focused.
+
+        // 1. Toggle Lyrics: ⌃⌘L (kVK_ANSI_L, cmdKey | controlKey)
         HotKeyManager.shared.register(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(cmdKey | controlKey)) { [weak self] in
             self?.toggleLyrics()
         }
 
-        // 2. Toggle Pin: ⌘P (kVK_ANSI_P, cmdKey) and ⌃⌘P (kVK_ANSI_P, cmdKey | controlKey)
-        HotKeyManager.shared.register(keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(cmdKey)) { [weak self] in
-            self?.togglePin()
-        }
+        // 2. Toggle Pin: ⌃⌘P (kVK_ANSI_P, cmdKey | controlKey)
         HotKeyManager.shared.register(keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(cmdKey | controlKey)) { [weak self] in
             self?.togglePin()
         }
@@ -73,11 +70,13 @@ public final class StatusBarController {
         menu.addItem(toggleItem)
 
         let pinItem = NSMenuItem(title: "Keep Expanded (Pin)", action: #selector(togglePin), keyEquivalent: "p")
+        pinItem.keyEquivalentModifierMask = [.command, .control]
         pinItem.target = self
         pinItem.state = viewModel.isPinned ? .on : .off
         menu.addItem(pinItem)
 
         let lyricsItem = NSMenuItem(title: "Show Lyrics", action: #selector(toggleLyrics), keyEquivalent: "l")
+        lyricsItem.keyEquivalentModifierMask = [.command, .control]
         lyricsItem.target = self
         lyricsItem.state = viewModel.showLyrics ? .on : .off
         menu.addItem(lyricsItem)
