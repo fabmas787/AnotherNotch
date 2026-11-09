@@ -110,12 +110,12 @@ public final class ScreenNotchManager: ObservableObject {
         if hasPhysical,
            let leftArea = targetScreen.auxiliaryTopLeftArea,
            let rightArea = targetScreen.auxiliaryTopRightArea {
-            let notchLeft = leftArea.maxX
-            let notchRight = rightArea.minX
-            let width = max(notchRight - notchLeft, 160.0)
-            let height = targetScreen.safeAreaInsets.top
-            let y = targetScreen.frame.maxY - height
-            let notchRect = NSRect(x: notchLeft, y: y, width: width, height: height)
+            let notchRect = calculateNotchRect(
+                screenFrame: targetScreen.frame,
+                safeAreaTop: targetScreen.safeAreaInsets.top,
+                auxiliaryTopLeftArea: leftArea,
+                auxiliaryTopRightArea: rightArea
+            )
 
             return NotchGeometry(
                 screenFrame: targetScreen.frame,
@@ -123,18 +123,44 @@ public final class ScreenNotchManager: ObservableObject {
                 notchRect: notchRect
             )
         } else {
-            // Fallback centered at the top of the target screen
-            let width: CGFloat = 208.0
-            let height: CGFloat = 34.0
-            let x = targetScreen.frame.midX - (width / 2.0)
-            let y = targetScreen.frame.maxY - height
-            let notchRect = NSRect(x: x, y: y, width: width, height: height)
+            let notchRect = calculateNotchRect(
+                screenFrame: targetScreen.frame,
+                safeAreaTop: 0,
+                auxiliaryTopLeftArea: nil,
+                auxiliaryTopRightArea: nil
+            )
 
             return NotchGeometry(
                 screenFrame: targetScreen.frame,
                 hasPhysicalNotch: false,
                 notchRect: notchRect
             )
+        }
+    }
+
+    /// Calculates the notch rectangle in global coordinates, normalizing screen-local auxiliary areas if needed.
+    public static func calculateNotchRect(
+        screenFrame: NSRect,
+        safeAreaTop: CGFloat,
+        auxiliaryTopLeftArea: NSRect?,
+        auxiliaryTopRightArea: NSRect?
+    ) -> NSRect {
+        if safeAreaTop > 0,
+           let leftArea = auxiliaryTopLeftArea,
+           let rightArea = auxiliaryTopRightArea {
+            let isLocalX = leftArea.minX < screenFrame.minX || (leftArea.minX == 0 && screenFrame.origin.x != 0)
+            let offsetX = isLocalX ? screenFrame.origin.x : 0
+            let notchLeft = offsetX + leftArea.maxX
+            let notchRight = offsetX + rightArea.minX
+            let notchWidth = max(160.0, notchRight - notchLeft)
+            let notchY = screenFrame.maxY - safeAreaTop
+            return NSRect(x: notchLeft, y: notchY, width: notchWidth, height: safeAreaTop)
+        } else {
+            let width: CGFloat = 208.0
+            let height: CGFloat = 34.0
+            let x = screenFrame.midX - (width / 2.0)
+            let y = screenFrame.maxY - height
+            return NSRect(x: x, y: y, width: width, height: height)
         }
     }
 }

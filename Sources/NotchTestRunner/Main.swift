@@ -53,6 +53,76 @@ func runGeometryTests() {
     assertCondition(defaultGeo.notchRect.width > 0, "Default notch width should be positive")
     assertCondition(defaultGeo.notchRect.height > 0, "Default notch height should be positive")
 
+    // Test 3: Multi-Display Offset Calculation (Horizontal & Vertical)
+    let secondaryScreenHorizontal = NSRect(x: 1920, y: 0, width: 1710, height: 1112)
+    let localLeftArea = NSRect(x: 0, y: 1074, width: 751, height: 38)
+    let localRightArea = NSRect(x: 959, y: 1074, width: 751, height: 38)
+    let horizontalNotch = ScreenNotchManager.calculateNotchRect(
+        screenFrame: secondaryScreenHorizontal,
+        safeAreaTop: 38,
+        auxiliaryTopLeftArea: localLeftArea,
+        auxiliaryTopRightArea: localRightArea
+    )
+    assertCondition(
+        abs(horizontalNotch.origin.x - (1920 + 751)) < 0.001,
+        "Multi-display horizontal offset: notchRect.origin.x (\(horizontalNotch.origin.x)) must align with secondary display offset (\(1920 + 751))"
+    )
+    assertCondition(
+        abs(horizontalNotch.origin.y - 1074) < 0.001,
+        "Multi-display horizontal offset: notchRect.origin.y (\(horizontalNotch.origin.y)) must align with screen maxY - safeAreaTop (1074)"
+    )
+    assertCondition(
+        abs(horizontalNotch.width - 208) < 0.001,
+        "Multi-display horizontal offset: notchRect.width must equal 208"
+    )
+
+    let secondaryScreenBoth = NSRect(x: 1920, y: 1080, width: 1710, height: 1112)
+    let bothNotch = ScreenNotchManager.calculateNotchRect(
+        screenFrame: secondaryScreenBoth,
+        safeAreaTop: 38,
+        auxiliaryTopLeftArea: localLeftArea,
+        auxiliaryTopRightArea: localRightArea
+    )
+    assertCondition(
+        abs(bothNotch.origin.x - (1920 + 751)) < 0.001,
+        "Multi-display x+y offset: notchRect.origin.x (\(bothNotch.origin.x)) must equal 2671"
+    )
+    assertCondition(
+        abs(bothNotch.origin.y - (secondaryScreenBoth.maxY - 38)) < 0.001,
+        "Multi-display x+y offset: notchRect.origin.y (\(bothNotch.origin.y)) must equal \(secondaryScreenBoth.maxY - 38)"
+    )
+
+    // Test 4: Global Coordinates in Auxiliary Areas
+    let globalLeftArea = NSRect(x: 1920, y: 2154, width: 751, height: 38)
+    let globalRightArea = NSRect(x: 2879, y: 2154, width: 751, height: 38)
+    let globalNotch = ScreenNotchManager.calculateNotchRect(
+        screenFrame: secondaryScreenBoth,
+        safeAreaTop: 38,
+        auxiliaryTopLeftArea: globalLeftArea,
+        auxiliaryTopRightArea: globalRightArea
+    )
+    assertCondition(
+        abs(globalNotch.origin.x - 2671) < 0.001,
+        "Global coordinates auxiliary areas: notchRect.origin.x must equal 2671"
+    )
+    assertCondition(
+        abs(globalNotch.origin.y - 2154) < 0.001,
+        "Global coordinates auxiliary areas: notchRect.origin.y must equal 2154"
+    )
+
+    // Test 5: Negative Offset Display (Screen to the left)
+    let leftScreen = NSRect(x: -1920, y: 0, width: 1710, height: 1112)
+    let negativeNotch = ScreenNotchManager.calculateNotchRect(
+        screenFrame: leftScreen,
+        safeAreaTop: 38,
+        auxiliaryTopLeftArea: localLeftArea,
+        auxiliaryTopRightArea: localRightArea
+    )
+    assertCondition(
+        abs(negativeNotch.origin.x - (-1920 + 751)) < 0.001,
+        "Negative display offset: notchRect.origin.x must equal -1920 + 751"
+    )
+
     print("✅ Geometry tests passed successfully.")
 }
 
