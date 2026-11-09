@@ -205,12 +205,15 @@ func runUnifiedMediaManagerTests() {
     print("\n--- Running Unified Media Manager Tests ---")
 
     let manager = UnifiedMediaManager()
+    defer { manager.stopTimers() }
 
     // Test 1: Default source
     manager.selectedSource = .demo
     assertCondition(manager.effectiveService.source == .demo, "Selected demo source should route to demo service")
 
     // Test 2: Visualizer amplitudes and acoustic multi-band diversity
+    manager.isExpanded = true
+    manager.updateVisualizerAndSmoothProgress()
     assertCondition(manager.visualizerAmplitudes.count == 12, "Visualizer should have 12 frequency bands")
     for amp in manager.visualizerAmplitudes {
         assertCondition(amp >= 0.0 && amp <= 1.0, "Amplitude should be bounded in [0, 1]")
@@ -265,6 +268,7 @@ func runUnifiedMediaManagerTests() {
     assertCondition(abs(manager.playbackPosition - 75.0) < 0.1, "Immediate service poll after seeking must not revert user seek position")
 
     // Test 9: Visualizer accuracy - volume scaling and mute
+    manager.isExpanded = true
     manager.setMuted(true)
     for _ in 0..<20 {
         manager.updateVisualizerAndSmoothProgress()
@@ -573,7 +577,9 @@ func runPerformanceAndLifecycleTests() {
 
     // Test 1: Visualizer timer pauses at resting floor when audio is inactive
     let manager = UnifiedMediaManager()
+    defer { manager.stopTimers() }
     manager.selectedSource = .demo
+    manager.isExpanded = true
     if manager.isPlaying {
         manager.playPause()
     }
@@ -590,6 +596,46 @@ func runPerformanceAndLifecycleTests() {
     manager.playPause()
     assertCondition(manager.isPlaying, "Manager should resume playing")
     assertCondition(manager.isVisualizerActive, "Visualizer timer should restart on playback resume")
+
+    // Test 1b: Battery & CPU optimization - visualizer simulation skipped when collapsed
+    let collapsedManager = UnifiedMediaManager()
+    defer { collapsedManager.stopTimers() }
+    collapsedManager.selectedSource = .demo
+    if !collapsedManager.isPlaying {
+        collapsedManager.playPause()
+    }
+    collapsedManager.isExpanded = false
+    assertCondition(collapsedManager.isPlaying, "Collapsed manager should be playing")
+    assertCondition(!collapsedManager.isExpanded, "Collapsed manager should have isExpanded == false")
+
+    let startPos = collapsedManager.playbackPosition
+    for _ in 0..<10 {
+        Thread.sleep(forTimeInterval: 0.01)
+        collapsedManager.updateVisualizerAndSmoothProgress()
+    }
+    // Verifications:
+    // 1. Playback position advances smoothly when collapsed
+    assertCondition(collapsedManager.playbackPosition > startPos, "Collapsed mode must advance playback position during playback")
+    // 2. Visualizer amplitudes remain resting at floor (0.05), skipping 12-band DSP simulation
+    assertCondition(collapsedManager.visualizerAmplitudes.allSatisfy { abs($0 - 0.05) < 0.001 }, "Amplitudes must remain at resting floor (0.05) when collapsed to conserve CPU and battery")
+
+    // 3. Passing computeVisualizer: true explicitly overrides isExpanded: false
+    collapsedManager.updateVisualizerAndSmoothProgress(computeVisualizer: true)
+    let activeMaxAmp = collapsedManager.visualizerAmplitudes.max() ?? 0
+    assertCondition(activeMaxAmp > 0.06, "Explicit computeVisualizer: true must trigger DSP simulation even when isExpanded is false")
+
+    // 4. Switching to isExpanded = true computes active amplitudes
+    collapsedManager.isExpanded = true
+    for _ in 0..<5 {
+        collapsedManager.updateVisualizerAndSmoothProgress()
+    }
+    let expandedMaxAmp = collapsedManager.visualizerAmplitudes.max() ?? 0
+    assertCondition(expandedMaxAmp > 0.15, "Expanded mode must compute lively multi-band amplitudes")
+
+    // 5. Switching back to isExpanded = false immediately resets amplitudes to resting floor
+    collapsedManager.isExpanded = false
+    collapsedManager.updateVisualizerAndSmoothProgress()
+    assertCondition(collapsedManager.visualizerAmplitudes.allSatisfy { abs($0 - 0.05) < 0.001 }, "Collapsing must immediately reset amplitudes to resting floor (0.05)")
 
     // Test 2: Artwork pre-decoding and song isolation
     let rep = NSBitmapImageRep(
@@ -657,6 +703,7 @@ func runPerformanceAndLifecycleTests() {
 
     // Test 2c: Adaptive visualizer rate with expansion
     let adaptiveManager = UnifiedMediaManager()
+    defer { adaptiveManager.stopTimers() }
     assertCondition(!adaptiveManager.isExpanded, "Initial manager is not expanded")
     adaptiveManager.isExpanded = true
     assertCondition(adaptiveManager.isExpanded, "Manager tracks isExpanded state")

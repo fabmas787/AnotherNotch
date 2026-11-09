@@ -19,7 +19,7 @@ public final class UnifiedMediaManager: ObservableObject {
     @Published public private(set) var isMuted: Bool = false
     @Published public private(set) var isShuffleActive: Bool = false
     @Published public private(set) var repeatMode: RepeatMode = .off
-    @Published public private(set) var visualizerAmplitudes: [CGFloat] = Array(repeating: 0.12, count: 12)
+    @Published public private(set) var visualizerAmplitudes: [CGFloat] = Array(repeating: 0.05, count: 12)
     @Published public private(set) var isGoingForward: Bool = true
 
     public let appleMusicService = AppleMusicService()
@@ -30,13 +30,20 @@ public final class UnifiedMediaManager: ObservableObject {
     private var visualizerTimer: Timer?
     private var directionResetTask: Task<Void, Never>?
     private var wavePhase: Double = 0.0
-    private var smoothedAmplitudes: [CGFloat] = Array(repeating: 0.08, count: 12)
+    private var smoothedAmplitudes: [CGFloat] = Array(repeating: 0.05, count: 12)
     private var lastSeekTime: CFTimeInterval = 0.0
     private var lastVisualizerTick: CFTimeInterval = 0.0
 
     public var isExpanded: Bool = false {
         didSet {
             guard isExpanded != oldValue else { return }
+            if !isExpanded {
+                let restingFloor = Array(repeating: CGFloat(0.05), count: 12)
+                if visualizerAmplitudes != restingFloor {
+                    smoothedAmplitudes = restingFloor
+                    visualizerAmplitudes = restingFloor
+                }
+            }
             restartVisualizerTimer()
         }
     }
@@ -48,6 +55,15 @@ public final class UnifiedMediaManager: ObservableObject {
     public init() {
         updateActiveService()
         startTimers()
+    }
+
+    public func stopTimers() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+        visualizerTimer?.invalidate()
+        visualizerTimer = nil
+        directionResetTask?.cancel()
+        directionResetTask = nil
     }
 
     isolated deinit {
@@ -199,7 +215,10 @@ public final class UnifiedMediaManager: ObservableObject {
 
     /// Accurate multi-band acoustic spectrum simulation with dynamic attack/decay ballistics,
     /// 4/4 musical groove transients, vocal/lead phrasing, and volume-scaled dynamic range.
-    public func updateVisualizerAndSmoothProgress(now: CFTimeInterval = CACurrentMediaTime()) {
+    public func updateVisualizerAndSmoothProgress(
+        now: CFTimeInterval = CACurrentMediaTime(),
+        computeVisualizer: Bool? = nil
+    ) {
         let dt: TimeInterval
         if lastVisualizerTick > 0 {
             let elapsed = now - lastVisualizerTick
@@ -208,6 +227,8 @@ public final class UnifiedMediaManager: ObservableObject {
             dt = isExpanded ? 0.016 : 1.0
         }
         lastVisualizerTick = now
+
+        let shouldComputeVisualizer = computeVisualizer ?? isExpanded
 
         if isPlaying {
             // Smoothly advance playback position in real time
@@ -227,142 +248,164 @@ public final class UnifiedMediaManager: ObservableObject {
                     return
                 }
             }
+        }
 
-            // Derive deterministic tempo and 4/4 musical structure from track properties
-            let bpm = stableTempo(for: currentTrack)
-            let beatDuration = 60.0 / bpm
-            let barDuration = beatDuration * 4.0
-            let pos = max(0.0, playbackPosition)
+        if shouldComputeVisualizer {
+            if isPlaying {
+                // Derive deterministic tempo and 4/4 musical structure from track properties
+                let bpm = stableTempo(for: currentTrack)
+                let beatDuration = 60.0 / bpm
+                let barDuration = beatDuration * 4.0
+                let pos = max(0.0, playbackPosition)
 
-            let barPosition = fmod(pos, barDuration)
-            let beatIndex = Int(barPosition / beatDuration) % 4
-            let beatPhase = (barPosition - Double(beatIndex) * beatDuration) / beatDuration // 0.0..<1.0
+                let barPosition = fmod(pos, barDuration)
+                let beatIndex = Int(barPosition / beatDuration) % 4
+                let beatPhase = (barPosition - Double(beatIndex) * beatDuration) / beatDuration // 0.0..<1.0
 
-            // Transient models:
-            // Kick on Beat 1 (downbeat) and Beat 3 (syncopation)
-            let kickWeight: Double
-            switch beatIndex {
-            case 0: kickWeight = 1.0
-            case 2: kickWeight = 0.78
-            default: kickWeight = 0.15
-            }
-            let kickTransient = max(0.0, 1.0 - (beatPhase / 0.18))
-            let kickEnergy = kickWeight * pow(kickTransient, 2.2)
+                // Transient models:
+                // Kick on Beat 1 (downbeat) and Beat 3 (syncopation)
+                let kickWeight: Double
+                switch beatIndex {
+                case 0: kickWeight = 1.0
+                case 2: kickWeight = 0.78
+                default: kickWeight = 0.15
+                }
+                let kickTransient = max(0.0, 1.0 - (beatPhase / 0.18))
+                let kickEnergy = kickWeight * pow(kickTransient, 2.2)
 
-            // Snare / Backbeat on Beat 2 and Beat 4
-            let snareWeight: Double
-            switch beatIndex {
-            case 1: snareWeight = 0.88
-            case 3: snareWeight = 0.96
-            default: snareWeight = 0.0
-            }
-            let snareTransient = max(0.0, 1.0 - (beatPhase / 0.16))
-            let snareEnergy = snareWeight * pow(snareTransient, 2.0)
+                // Snare / Backbeat on Beat 2 and Beat 4
+                let snareWeight: Double
+                switch beatIndex {
+                case 1: snareWeight = 0.88
+                case 3: snareWeight = 0.96
+                default: snareWeight = 0.0
+                }
+                let snareTransient = max(0.0, 1.0 - (beatPhase / 0.16))
+                let snareEnergy = snareWeight * pow(snareTransient, 2.0)
 
-            // Hi-hats on 8th notes and 16th subdivisions
-            let subBeatDuration = beatDuration / 2.0
-            let subBeatPhase = fmod(pos, subBeatDuration) / subBeatDuration
-            let isOffBeat = fmod(pos, beatDuration) >= subBeatDuration
-            let hihatTransient = max(0.0, 1.0 - (subBeatPhase / 0.24))
-            let hihatEnergy = pow(hihatTransient, 1.8)
-            let openHatTransient = isOffBeat ? max(0.0, 1.0 - (subBeatPhase / 0.42)) : 0.0
-            let openHatEnergy = pow(openHatTransient, 1.6)
+                // Hi-hats on 8th notes and 16th subdivisions
+                let subBeatDuration = beatDuration / 2.0
+                let subBeatPhase = fmod(pos, subBeatDuration) / subBeatDuration
+                let isOffBeat = fmod(pos, beatDuration) >= subBeatDuration
+                let hihatTransient = max(0.0, 1.0 - (subBeatPhase / 0.24))
+                let hihatEnergy = pow(hihatTransient, 1.8)
+                let openHatTransient = isOffBeat ? max(0.0, 1.0 - (subBeatPhase / 0.42)) : 0.0
+                let openHatEnergy = pow(openHatTransient, 1.6)
 
-            // Melodic and vocal phrasing (harmonic movement across phrases)
-            let phraseCycle = fmod(pos, barDuration * 4.0) / (barDuration * 4.0)
-            let phraseEnvelope = 0.75 + 0.25 * sin(phraseCycle * .pi * 2.0)
-            let vocalFlow = (sin(pos * 2.6) * 0.32 + cos(pos * 1.3) * 0.22 + 0.44) * phraseEnvelope
-            let leadFlow = (sin(pos * 3.4 + 1.2) * 0.28 + cos(pos * 1.8) * 0.20 + 0.48) * phraseEnvelope
-            let bassFlow = (sin(pos * (2.0 * .pi / (beatDuration * 2.0))) * 0.22 + 0.38)
+                // Melodic and vocal phrasing (harmonic movement across phrases)
+                let phraseCycle = fmod(pos, barDuration * 4.0) / (barDuration * 4.0)
+                let phraseEnvelope = 0.75 + 0.25 * sin(phraseCycle * .pi * 2.0)
+                let vocalFlow = (sin(pos * 2.6) * 0.32 + cos(pos * 1.3) * 0.22 + 0.44) * phraseEnvelope
+                let leadFlow = (sin(pos * 3.4 + 1.2) * 0.28 + cos(pos * 1.8) * 0.20 + 0.48) * phraseEnvelope
+                let bassFlow = (sin(pos * (2.0 * .pi / (beatDuration * 2.0))) * 0.22 + 0.38)
 
-            // Cymbal and air resonance (deterministic harmonic shimmer, no random white noise)
-            let cymbalShimmer = sin(pos * 11.3) * 0.06 + cos(pos * 17.1) * 0.05 + 0.12
-            let airShimmer = sin(pos * 13.7) * 0.05 + cos(pos * 23.4) * 0.04 + 0.10
+                // Cymbal and air resonance (deterministic harmonic shimmer, no random white noise)
+                let cymbalShimmer = sin(pos * 11.3) * 0.06 + cos(pos * 17.1) * 0.05 + 0.12
+                let airShimmer = sin(pos * 13.7) * 0.05 + cos(pos * 23.4) * 0.04 + 0.10
 
-            // Dynamic gain scaling with volume and mute
-            let gain: CGFloat
-            if isMuted || volume <= 0.001 {
-                gain = 0.0
+                // Dynamic gain scaling with volume and mute
+                let gain: CGFloat
+                if isMuted || volume <= 0.001 {
+                    gain = 0.0
+                } else {
+                    gain = CGFloat(max(0.0, min(1.0, volume)))
+                }
+
+                // Target amplitudes across 12 distinct frequency bands:
+                // 0: Sub-bass (40-60Hz)
+                // 1: Bass (80-120Hz)
+                // 2: Upper Bass / Punch (200Hz)
+                // 3: Low Mids / Snare Body (350Hz)
+                // 4: Vocals / Mids (700Hz)
+                // 5: Vocal Presence (1.5kHz)
+                // 6: Snare Bite / Presence (3kHz)
+                // 7: Percussion / Crunch (5kHz)
+                // 8: Closed Hi-hats (8kHz)
+                // 9: Open Hi-hats / Cymbals (12kHz)
+                // 10: Shimmer / Ride (15kHz)
+                // 11: Top Air / Ambience (18kHz)
+                var rawTargets: [CGFloat] = []
+                rawTargets.append(CGFloat(min(1.0, 0.10 + 0.85 * kickEnergy + 0.08 * bassFlow)))
+                rawTargets.append(CGFloat(min(1.0, 0.12 + 0.76 * kickEnergy + 0.20 * bassFlow)))
+                rawTargets.append(CGFloat(min(1.0, 0.12 + 0.58 * kickEnergy + 0.25 * vocalFlow)))
+                rawTargets.append(CGFloat(min(1.0, 0.10 + 0.32 * kickEnergy + 0.42 * vocalFlow + 0.20 * snareEnergy)))
+                rawTargets.append(CGFloat(min(1.0, 0.12 + 0.54 * vocalFlow + 0.26 * snareEnergy)))
+                rawTargets.append(CGFloat(min(1.0, 0.12 + 0.48 * leadFlow + 0.34 * snareEnergy)))
+                rawTargets.append(CGFloat(min(1.0, 0.10 + 0.40 * leadFlow + 0.48 * snareEnergy)))
+                rawTargets.append(CGFloat(min(1.0, 0.08 + 0.32 * snareEnergy + 0.54 * hihatEnergy)))
+                rawTargets.append(CGFloat(min(1.0, 0.08 + 0.65 * hihatEnergy + 0.18 * openHatEnergy)))
+                rawTargets.append(CGFloat(min(1.0, 0.07 + 0.42 * hihatEnergy + 0.50 * openHatEnergy + cymbalShimmer)))
+                rawTargets.append(CGFloat(min(1.0, 0.06 + 0.25 * hihatEnergy + 0.42 * openHatEnergy + airShimmer)))
+                rawTargets.append(CGFloat(min(1.0, 0.05 + 0.18 * hihatEnergy + 0.32 * openHatEnergy + airShimmer)))
+
+                // Scale targets by volume gain, preserving resting floor at 0.05 when muted
+                let targets = rawTargets.map { raw -> CGFloat in
+                    let resting: CGFloat = 0.05
+                    return resting + (raw - resting) * gain
+                }
+
+                // Asymmetric ballistic smoothing: fast attack (snappy transients), smooth acoustic decay
+                for i in 0..<12 {
+                    let target = targets[i]
+                    let current = smoothedAmplitudes[i]
+                    let attackRate: CGFloat
+                    let decayRate: CGFloat
+                    if i < 3 {
+                        attackRate = 0.74
+                        decayRate = 0.18
+                    } else if i < 7 {
+                        attackRate = 0.78
+                        decayRate = 0.22
+                    } else {
+                        attackRate = 0.84
+                        decayRate = 0.26
+                    }
+
+                    if target > current {
+                        smoothedAmplitudes[i] += (target - current) * attackRate
+                    } else {
+                        smoothedAmplitudes[i] += (target - current) * decayRate
+                    }
+                }
+                if self.visualizerAmplitudes != smoothedAmplitudes {
+                    self.visualizerAmplitudes = smoothedAmplitudes
+                }
             } else {
-                gain = CGFloat(max(0.0, min(1.0, volume)))
-            }
-
-            // Target amplitudes across 12 distinct frequency bands:
-            // 0: Sub-bass (40-60Hz)
-            // 1: Bass (80-120Hz)
-            // 2: Upper Bass / Punch (200Hz)
-            // 3: Low Mids / Snare Body (350Hz)
-            // 4: Vocals / Mids (700Hz)
-            // 5: Vocal Presence (1.5kHz)
-            // 6: Snare Bite / Presence (3kHz)
-            // 7: Percussion / Crunch (5kHz)
-            // 8: Closed Hi-hats (8kHz)
-            // 9: Open Hi-hats / Cymbals (12kHz)
-            // 10: Shimmer / Ride (15kHz)
-            // 11: Top Air / Ambience (18kHz)
-            var rawTargets: [CGFloat] = []
-            rawTargets.append(CGFloat(min(1.0, 0.10 + 0.85 * kickEnergy + 0.08 * bassFlow)))
-            rawTargets.append(CGFloat(min(1.0, 0.12 + 0.76 * kickEnergy + 0.20 * bassFlow)))
-            rawTargets.append(CGFloat(min(1.0, 0.12 + 0.58 * kickEnergy + 0.25 * vocalFlow)))
-            rawTargets.append(CGFloat(min(1.0, 0.10 + 0.32 * kickEnergy + 0.42 * vocalFlow + 0.20 * snareEnergy)))
-            rawTargets.append(CGFloat(min(1.0, 0.12 + 0.54 * vocalFlow + 0.26 * snareEnergy)))
-            rawTargets.append(CGFloat(min(1.0, 0.12 + 0.48 * leadFlow + 0.34 * snareEnergy)))
-            rawTargets.append(CGFloat(min(1.0, 0.10 + 0.40 * leadFlow + 0.48 * snareEnergy)))
-            rawTargets.append(CGFloat(min(1.0, 0.08 + 0.32 * snareEnergy + 0.54 * hihatEnergy)))
-            rawTargets.append(CGFloat(min(1.0, 0.08 + 0.65 * hihatEnergy + 0.18 * openHatEnergy)))
-            rawTargets.append(CGFloat(min(1.0, 0.07 + 0.42 * hihatEnergy + 0.50 * openHatEnergy + cymbalShimmer)))
-            rawTargets.append(CGFloat(min(1.0, 0.06 + 0.25 * hihatEnergy + 0.42 * openHatEnergy + airShimmer)))
-            rawTargets.append(CGFloat(min(1.0, 0.05 + 0.18 * hihatEnergy + 0.32 * openHatEnergy + airShimmer)))
-
-            // Scale targets by volume gain, preserving resting floor at 0.05 when muted
-            let targets = rawTargets.map { raw -> CGFloat in
-                let resting: CGFloat = 0.05
-                return resting + (raw - resting) * gain
-            }
-
-            // Asymmetric ballistic smoothing: fast attack (snappy transients), smooth acoustic decay
-            for i in 0..<12 {
-                let target = targets[i]
-                let current = smoothedAmplitudes[i]
-                let attackRate: CGFloat
-                let decayRate: CGFloat
-                if i < 3 {
-                    attackRate = 0.74
-                    decayRate = 0.18
-                } else if i < 7 {
-                    attackRate = 0.78
-                    decayRate = 0.22
-                } else {
-                    attackRate = 0.84
-                    decayRate = 0.26
+                // Resting state: graceful exponential decay to resting floor
+                var allAtFloor = true
+                for i in 0..<12 {
+                    let current = smoothedAmplitudes[i]
+                    let next = current + (0.05 - current) * 0.20
+                    smoothedAmplitudes[i] = next
+                    if next > 0.051 {
+                        allAtFloor = false
+                    }
                 }
-
-                if target > current {
-                    smoothedAmplitudes[i] += (target - current) * attackRate
+                if allAtFloor {
+                    smoothedAmplitudes = Array(repeating: 0.05, count: 12)
+                    if self.visualizerAmplitudes != smoothedAmplitudes {
+                        self.visualizerAmplitudes = smoothedAmplitudes
+                    }
+                    visualizerTimer?.invalidate()
+                    visualizerTimer = nil
+                    lastVisualizerTick = 0.0
                 } else {
-                    smoothedAmplitudes[i] += (target - current) * decayRate
+                    if self.visualizerAmplitudes != smoothedAmplitudes {
+                        self.visualizerAmplitudes = smoothedAmplitudes
+                    }
                 }
             }
-            self.visualizerAmplitudes = smoothedAmplitudes
         } else {
-            // Resting state: graceful exponential decay to resting floor
-            var allAtFloor = true
-            for i in 0..<12 {
-                let current = smoothedAmplitudes[i]
-                let next = current + (0.05 - current) * 0.20
-                smoothedAmplitudes[i] = next
-                if next > 0.051 {
-                    allAtFloor = false
-                }
+            // Collapsed: visualizer is not rendered, skip 12-band DSP simulation to save CPU & battery
+            let restingFloor = Array(repeating: CGFloat(0.05), count: 12)
+            if self.visualizerAmplitudes != restingFloor {
+                smoothedAmplitudes = restingFloor
+                self.visualizerAmplitudes = restingFloor
             }
-            if allAtFloor {
-                smoothedAmplitudes = Array(repeating: 0.05, count: 12)
-                self.visualizerAmplitudes = smoothedAmplitudes
+            if !isPlaying {
                 visualizerTimer?.invalidate()
                 visualizerTimer = nil
                 lastVisualizerTick = 0.0
-            } else {
-                self.visualizerAmplitudes = smoothedAmplitudes
             }
         }
     }
