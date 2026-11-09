@@ -17,6 +17,8 @@ public final class LyricsService: ObservableObject {
     public static let anticipationLeadTime: TimeInterval = 0.35
 
     private var lastActiveIndex: Int = -1
+    private let maxCacheSize = 50
+    private var cacheOrder: [String] = []
     private var cache: [String: CachedLyricsResult] = [:]
     private var activeFetchTask: Task<Void, Never>?
     private let urlSession: URLSession
@@ -25,6 +27,29 @@ public final class LyricsService: ObservableObject {
         let lines: [LyricLine]
         let isInstrumental: Bool
         let hasNoLyrics: Bool
+    }
+
+    public var cacheCount: Int {
+        cache.count
+    }
+
+    public func isCached(key: String) -> Bool {
+        cache[key] != nil
+    }
+
+    public func setCachedLyricsForTesting(key: String, lines: [LyricLine] = [], isInstrumental: Bool = false, hasNoLyrics: Bool = false) {
+        storeInCache(key: key, result: CachedLyricsResult(lines: lines, isInstrumental: isInstrumental, hasNoLyrics: hasNoLyrics))
+    }
+
+    private func storeInCache(key: String, result: CachedLyricsResult) {
+        if cache[key] == nil {
+            if cacheOrder.count >= maxCacheSize {
+                let oldest = cacheOrder.removeFirst()
+                cache.removeValue(forKey: oldest)
+            }
+            cacheOrder.append(key)
+        }
+        cache[key] = result
     }
 
     private struct LRCLIBResponse: Decodable {
@@ -41,7 +66,13 @@ public final class LyricsService: ObservableObject {
 
     /// Primary entry point to sync lyrics when the playing track changes.
     public func fetchLyrics(for track: TrackInfo?) {
-        guard let track = track, !track.title.isEmpty, track.title != "No Music Playing" else {
+        activeFetchTask?.cancel()
+        activeFetchTask = nil
+
+        guard let track = track,
+              !track.title.isEmpty,
+              track.title != "No Music Playing",
+              !track.artist.isEmpty else {
             resetState()
             currentTrackKey = ""
             return
@@ -60,8 +91,6 @@ public final class LyricsService: ObservableObject {
             return
         }
 
-        // Cancel existing ongoing request
-        activeFetchTask?.cancel()
         isLoading = true
         isInstrumental = false
         hasNoLyrics = false
@@ -71,9 +100,9 @@ public final class LyricsService: ObservableObject {
             guard let self = self else { return }
 
             let result = await self.loadFromNetwork(track: track, cleanTitle: cleanTitle, cleanArtist: cleanArtist)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self.currentTrackKey == key else { return }
 
-            self.cache[key] = result
+            self.storeInCache(key: key, result: result)
             self.applyResult(result)
             self.isLoading = false
         }
@@ -90,6 +119,7 @@ public final class LyricsService: ObservableObject {
 
     public func resetState() {
         activeFetchTask?.cancel()
+        activeFetchTask = nil
         currentLyrics = []
         isLoading = false
         isInstrumental = false
@@ -318,10 +348,10 @@ public final class LyricsService: ObservableObject {
         [00:37.00] The girl with the sun in her eyes
         """
 
-        cache["midnight city__m83"] = CachedLyricsResult(lines: LRCParser.parse(midnightCityLrc), isInstrumental: false, hasNoLyrics: false)
-        cache["get lucky__daft punk"] = CachedLyricsResult(lines: LRCParser.parse(getLuckyLrc), isInstrumental: false, hasNoLyrics: false)
-        cache["starboy__the weeknd"] = CachedLyricsResult(lines: LRCParser.parse(starboyLrc), isInstrumental: false, hasNoLyrics: false)
-        cache["solar power__lorde"] = CachedLyricsResult(lines: LRCParser.parse(solarPowerLrc), isInstrumental: false, hasNoLyrics: false)
-        cache["resonance__home"] = CachedLyricsResult(lines: [], isInstrumental: true, hasNoLyrics: false)
+        storeInCache(key: "midnight city__m83", result: CachedLyricsResult(lines: LRCParser.parse(midnightCityLrc), isInstrumental: false, hasNoLyrics: false))
+        storeInCache(key: "get lucky__daft punk", result: CachedLyricsResult(lines: LRCParser.parse(getLuckyLrc), isInstrumental: false, hasNoLyrics: false))
+        storeInCache(key: "starboy__the weeknd", result: CachedLyricsResult(lines: LRCParser.parse(starboyLrc), isInstrumental: false, hasNoLyrics: false))
+        storeInCache(key: "solar power__lorde", result: CachedLyricsResult(lines: LRCParser.parse(solarPowerLrc), isInstrumental: false, hasNoLyrics: false))
+        storeInCache(key: "resonance__home", result: CachedLyricsResult(lines: [], isInstrumental: true, hasNoLyrics: false))
     }
 }

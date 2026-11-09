@@ -869,6 +869,55 @@ func runStatusBarControllerTests() {
     print("✅ Status Bar Controller tests passed successfully.")
 }
 
+final class MockSlowLyricsURLProtocol: URLProtocol, @unchecked Sendable {
+    static let delay: TimeInterval = 0.2
+    static let mockResponseData: Data = """
+    {
+        "id": 99999,
+        "instrumental": false,
+        "plainLyrics": "Slow Track A Lyric",
+        "syncedLyrics": "[00:01.00] Slow Track A Lyric\\n[00:05.00] Slow Track A Line 2"
+    }
+    """.data(using: .utf8)!
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        let client = self.client
+        let reqUrl = self.request.url ?? URL(string: "https://lrclib.net")!
+        let data = Self.mockResponseData
+        let delay = Self.delay
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) {
+            let response = HTTPURLResponse(
+                url: reqUrl,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+@MainActor
+func waitForRunLoop(seconds: TimeInterval) {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+    }
+}
+
 @MainActor
 func runLyricsTests() {
     print("\n--- Running Synchronized Lyrics Tests ---")
@@ -991,6 +1040,94 @@ func runLyricsTests() {
     assertCondition(anticipatedActive == 1, "Visualizer with anticipation must advance to next line before vocal timestamp")
     let unadvanced = service.activeIndex(for: 32.40 - 0.50 + LyricsService.anticipationLeadTime)
     assertCondition(unadvanced == 0, "Well before anticipation lead time, previous line must remain active")
+
+    // Test 10: Rapid track switching during in-flight fetch
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [MockSlowLyricsURLProtocol.self]
+    let slowSession = URLSession(configuration: config)
+    let raceService = LyricsService(session: slowSession)
+
+    let trackA = TrackInfo(
+        title: "Slow Track A",
+        artist: "Slow Artist A",
+        album: "Slow Album",
+        duration: 180.0,
+        source: .demo
+    )
+    let trackB = TrackInfo(
+        title: "Midnight City",
+        artist: "M83",
+        album: "Hurry Up, We're Dreaming",
+        duration: 243.0,
+        source: .demo
+    )
+
+    // Launch slow fetch for Track A
+    raceService.fetchLyrics(for: trackA)
+    assertCondition(raceService.isLoading == true, "Track A should trigger loading")
+    assertCondition(raceService.currentTrackKey == "slow track a__slow artist a", "Track A key should be set")
+
+    // Immediately switch to Track B (cached demo track)
+    raceService.fetchLyrics(for: trackB)
+    assertCondition(raceService.currentTrackKey == "midnight city__m83", "Track B key should be active")
+    assertCondition(!raceService.currentLyrics.isEmpty, "Track B lyrics should be displayed immediately from cache")
+    assertCondition(raceService.currentLyrics.first?.text == "Waiting in a car", "Track B first line should be 'Waiting in a car'")
+
+    // Wait for Track A's slow network request to complete (delay is 0.2s, wait 0.35s)
+    waitForRunLoop(seconds: 0.35)
+
+    // Verify Track A did NOT overwrite Track B
+    assertCondition(raceService.currentTrackKey == "midnight city__m83", "Track key must still be Track B after Track A's fetch finishes")
+    assertCondition(raceService.currentLyrics.first?.text == "Waiting in a car", "Track B lyrics must not be overwritten by delayed Track A")
+    assertCondition(raceService.isLoading == false, "Service must not be loading")
+
+    // Test 11: Empty/nil track or "No Music Playing" cancels in-flight fetch and resets state
+    raceService.fetchLyrics(for: trackA)
+    assertCondition(raceService.isLoading == true, "Track A should start loading again")
+
+    // Switch to nil / empty track
+    raceService.fetchLyrics(for: nil)
+    assertCondition(raceService.currentTrackKey.isEmpty, "Current track key must be empty after nil track")
+    assertCondition(raceService.currentLyrics.isEmpty, "Current lyrics must be empty after nil track")
+    assertCondition(raceService.isLoading == false, "Loading state must be reset after nil track")
+
+    // Wait for Track A's slow network request to complete
+    waitForRunLoop(seconds: 0.35)
+
+    // Verify Track A did NOT resurrect state
+    assertCondition(raceService.currentTrackKey.isEmpty, "Current track key must remain empty")
+    assertCondition(raceService.currentLyrics.isEmpty, "Current lyrics must remain empty")
+    assertCondition(raceService.isLoading == false, "Loading state must remain false")
+
+    // Test with "No Music Playing" title
+    let idleTrack = TrackInfo(
+        title: "No Music Playing",
+        artist: "",
+        album: "",
+        duration: 0.0,
+        source: .demo
+    )
+    raceService.fetchLyrics(for: trackA)
+    assertCondition(raceService.isLoading == true, "Track A should start loading")
+    raceService.fetchLyrics(for: idleTrack)
+    assertCondition(raceService.currentTrackKey.isEmpty, "No Music Playing must reset track key")
+    assertCondition(raceService.currentLyrics.isEmpty, "No Music Playing must clear lyrics")
+    waitForRunLoop(seconds: 0.35)
+    assertCondition(raceService.currentLyrics.isEmpty, "Delayed Track A must not overwrite No Music Playing reset")
+
+    // Test 12: Bounded FIFO cache (max 50 tracks)
+    let boundedService = LyricsService()
+    assertCondition(boundedService.cacheCount == 5, "Initial preloaded cache count should be 5, got \(boundedService.cacheCount)")
+    assertCondition(boundedService.isCached(key: "midnight city__m83"), "Midnight City should be cached initially")
+
+    // Insert 50 new items (total 55 attempted)
+    for i in 1...50 {
+        boundedService.setCachedLyricsForTesting(key: "test_track_\(i)")
+    }
+
+    assertCondition(boundedService.cacheCount == 50, "Cache count must be capped at 50, got \(boundedService.cacheCount)")
+    assertCondition(!boundedService.isCached(key: "midnight city__m83"), "Oldest demo track 'midnight city__m83' must be evicted FIFO")
+    assertCondition(boundedService.isCached(key: "test_track_50"), "Most recently added track 'test_track_50' must remain in cache")
 
     print("✅ Synchronized Lyrics tests passed successfully.")
 }
