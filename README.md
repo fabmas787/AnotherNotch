@@ -1,105 +1,221 @@
-# Notch Music Prototype
+# Notch
 
-A native macOS utility inspired by [boringNotch](https://github.com/TheBoredTeam/boring.notch) that utilizes the physical display notch as an interactive music controller and dynamic island.
-
----
-
-## 🌟 Features
-
-- **Hardware Notch Snapping**: Detects physical notch dimensions dynamically using AppKit's `NSScreen.auxiliaryTopLeftArea`, `auxiliaryTopRightArea`, and `safeAreaInsets.top`.
-- **Non-Notch / External Display Support**: Automatically falls back to a sleek top-center pill on displays without a hardware notch.
-- **Smooth Spring Transitions**: Expands downward on mouse hover into a feature-packed media control island with fluid animations (`.spring(response: 0.38, dampingFraction: 0.78)`).
-- **Debounced Collapse**: Includes a graceful hysteresis exit timer (0.35s) to prevent accidental collapse when moving between controls.
-- **Pin Mode**: Lock the expanded music card open while multitasking using the pin button or menu bar extra.
-- **Live Soundwave Visualizer**: Multi-band animated audio equalizer bars that respond dynamically during playback.
-- **Interactive Scrubber Bar**: Drag or click anywhere on the progress bar to scrub/seek playback with live elapsed and remaining timestamps.
-- **Full Volume & Mute Controls**: Native sound volume slider and one-click mute button synced across players.
-- **Dynamic Album Artwork**: Displays high-resolution album covers fetched directly from active playback (Spotify artwork URL or Apple Music), with ambient gradient glow fallback.
-- **Multi-Source Media Player**:
-  - **Auto-Detect**: Automatically selects and controls active playback from Apple Music or Spotify without state desync.
-  - **Apple Music**: Native non-blocking `NSAppleScript` controls with instant change updates via `com.apple.Music.playerInfo`.
-  - **Spotify**: Native non-blocking `NSAppleScript` controls with instant change updates via `com.spotify.client.PlaybackStateChanged`.
-  - **Built-in Interactive Demo Player**: Complete playlist with realistic tracks, seeking, volume, and beat animations for instant testing on any Mac.
-- **Keyboard Navigation & Dismissal**: Press `Escape` while focused to smoothly collapse or unpin the notch HUD.
-- **Menu Bar Status Item (`NSStatusItem`)**: Quick access to toggle the overlay, pin/unpin, switch active source, or quit.
-- **Zero Dock Clutter**: Configured with `LSUIElement = true` / `.accessory` activation policy, keeping your Dock clean.
+Notch is a native macOS media controller and heads-up display built with Swift, SwiftUI, and AppKit. It integrates directly into the physical display notch of modern Apple Silicon MacBooks or renders an adaptive floating pill on external and non-notch displays. The utility provides persistent playback controls, volume adjustment, seeking, and real-time synchronized lyrics for Apple Music and Spotify, running as a lightweight accessory application without Dock clutter.
 
 ---
 
-## 🏗 Architecture
+## Functional Features
+
+### Display and Notch Adaptation
+- **Hardware Notch Snapping**: Detects physical display notch boundaries using AppKit `NSScreen` properties (`auxiliaryTopLeftArea`, `auxiliaryTopRightArea`, and `safeAreaInsets.top`). The HUD aligns flush against the upper bezel and centers dynamically on the notch midpoint.
+- **Multi-Display Coordinate Offsets**: Normalizes screen-local auxiliary bounds against global display coordinates, ensuring proper positioning on secondary, mirrored, or arrangement-offset monitors including negative-offset displays.
+- **Adaptive Fallback Pill**: Renders a compact camera housing and simulated lens on external monitors or Mac models without a physical notch cutout.
+- **Dynamic Reconfiguration**: Subscribes to `NSApplication.didChangeScreenParametersNotification` to recompute geometry immediately upon display connection, disconnection, or resolution changes.
+
+### Window Behavior and Interaction
+- **Hover Expansion**: Smoothly expands downward from compact wings into an expanded control HUD when hovered, using spring animations (`.spring(response: 0.42, dampingFraction: 0.80)`).
+- **Debounced Collapse**: Employs an exit hysteresis timer (0.45s) on cursor departure to prevent accidental collapse when scrubbing, adjusting sliders, or transitioning across UI elements.
+- **Pin Mode**: Enables locking the expanded card in place via a UI toggle, menu bar action, or keyboard shortcut. When pinned, the window accepts key input; when unpinned, hover interaction does not steal focus from underlying applications.
+- **Selective Hit-Testing**: Uses a custom view container that restricts mouse event interception strictly to the visible geometry of the notch, allowing clicks outside the active pill or card to pass through unimpeded to background applications.
+- **Background Accessory Lifecycle**: Configured with `LSUIElement = true` and `NSApplication.ActivationPolicy.accessory`, running without a Dock icon while remaining accessible through the status bar and global hotkeys.
+
+### Media Playback and Routing
+- **Multi-Source Coordination**: The `UnifiedMediaManager` detects and routes between Apple Music, Spotify, and an offline simulated demo player. When configured to Auto, priority is given to actively playing applications, followed by running applications with valid track metadata.
+- **Apple Music Integration**: Communicates via asynchronous, non-blocking `NSAppleScript` execution and subscribes to distributed notifications (`com.apple.Music.playerInfo`) for immediate state synchronization.
+- **Spotify Integration**: Interacts via `NSAppleScript` commands and listens for `com.spotify.client.PlaybackStateChanged` distributed notifications.
+- **Offline Demo Player**: Ships with a built-in simulated playlist (`SimulatedMediaService`) providing full seeking, track skipping, play/pause, and looping capabilities for development and testing environments without active media subscriptions.
+
+### Playback Controls and Audio Scrubbing
+- **Core Transport Controls**: Supports play, pause, track skipping, and rewinding. Transport buttons integrate Apple layer-bounce symbol effects (`.symbolEffect(.bounce.down.byLayer)`) for tactile visual feedback.
+- **Shuffle and Repeat**: Toggles shuffle state with visual accent indicators and cycles repeat modes between off, repeat all, and repeat one (`repeat.1`).
+- **Interactive Scrubber Bar**: Drag-to-seek progress bar utilizing an Apple Music-style spring slider that expands in thickness while dragging. Features live elapsed and remaining timestamps formatted as `m:ss` and `-m:ss`.
+- **Directional Slide Transitions**: Album artwork and typography transition directionally based on whether the user skipped forward or backward.
+
+### Synchronized Lyrics Display
+- **LRCLIB Integration**: Queries the public LRCLIB REST API for timestamped LRC transcripts using track title, artist, and duration criteria.
+- **Three-Line Synchronized Interface**: Displays a scrollable three-line interface featuring the previous line (dimmed), active line (bright white), and upcoming line (dimmed).
+- **Vocal Anticipation Offset**: Advances lyric highlights 0.35 seconds ahead of raw playback time to compensate for vocal entry delay.
+- **Binary Search Indexing**: Calculates current lyric indices in logarithmic time (`O(log n)`) against playback timecodes.
+- **Bounded In-Memory Cache**: Maintains an in-memory cache of up to 50 parsed track lyrics using an LRU eviction policy to minimize network overhead.
+- **Graceful Fallback Handling**: Distinct UI states for loading indicators, instrumental tracks, unavailable lyrics, and unformatted text transcripts.
+
+### Hotkeys and Keyboard Shortcuts
+- **Global Carbon Hotkeys**: System-wide shortcuts registered via Carbon APIs without requiring macOS Accessibility permissions:
+  - `Control + Command + N`: Toggle notch overlay visibility.
+  - `Control + Command + P`: Toggle HUD pin mode.
+  - `Control + Command + L`: Toggle lyrics view visibility.
+- **Panel Key Navigation**: When the notch panel is focused:
+  - `Escape`: Collapse and unpin the HUD.
+  - `Space`: Toggle play/pause playback.
+  - `Command + P` or `Control + Command + P`: Toggle pin mode.
+  - `Command + L` or `Control + Command + L`: Toggle lyrics view.
+
+---
+
+## Code Architecture
+
+### Project Hierarchy
 
 ```
 Notch/
-├── Package.swift                    # SwiftPM manifest (macOS 14+)
+├── Package.swift
 ├── scripts/
-│   └── build_app.sh                 # Releases and packages signed Notch.app
+│   └── build_app.sh
 ├── Sources/
-│   ├── NotchKit/                    # Reusable framework
+│   ├── NotchKit/
+│   │   ├── App/
+│   │   │   ├── HotKeyManager.swift
+│   │   │   └── StatusBarController.swift
 │   │   ├── Geometry/
-│   │   │   └── ScreenNotchManager.swift    # NSScreen inspection & coordinate conversion
+│   │   │   └── ScreenNotchManager.swift
+│   │   ├── Lyrics/
+│   │   │   ├── LRCParser.swift
+│   │   │   ├── LyricLine.swift
+│   │   │   └── LyricsService.swift
 │   │   ├── Media/
-│   │   │   ├── TrackInfo.swift             # Track metadata, artwork URLs & source definitions
-│   │   │   ├── MediaServiceProtocol.swift  # Protocol for media players with volume/mute
-│   │   │   ├── AppleMusicService.swift     # Apple Music integration with async AppleScript
-│   │   │   ├── SpotifyService.swift        # Spotify integration with artwork URL fetching
-│   │   │   ├── SimulatedMediaService.swift # Demo music player with volume & seeking
-│   │   │   └── UnifiedMediaManager.swift   # Source coordinator, smooth progress & visualizer engine
+│   │   │   ├── AppleMusicService.swift
+│   │   │   ├── AppleScriptRunner.swift
+│   │   │   ├── MediaServiceProtocol.swift
+│   │   │   ├── SimulatedMediaService.swift
+│   │   │   ├── SpotifyService.swift
+│   │   │   ├── TrackInfo.swift
+│   │   │   └── UnifiedMediaManager.swift
 │   │   ├── ViewModel/
-│   │   │   └── NotchViewModel.swift        # State management (hover, pin, collapse, volume, scrubbing)
+│   │   │   └── NotchViewModel.swift
 │   │   ├── Views/
-│   │   │   ├── NotchRootView.swift         # Root container & transition controller
-│   │   │   ├── CompactNotchView.swift      # Wings hugging the physical notch cutout
-│   │   │   ├── ExpandedNotchView.swift     # Expanded media card HUD
-│   │   │   ├── AlbumArtView.swift          # Live artwork image with gradient vinyl fallback
-│   │   │   ├── AudioVisualizerSymbolView.swift # SF Symbol timelapse visualizer
-│   │   │   ├── ScrubberBarView.swift       # Interactive scrubber & timestamps
-│   │   │   └── AppleMusicSlider.swift      # Apple Music-style spring-expanding slider
-│   │   ├── Window/
-│   │   │   ├── NotchPanel.swift            # Custom non-activating borderless NSPanel with key & Escape support
-│   │   │   └── NotchWindowController.swift # Window lifecycle & frame animator
-│   │   └── App/
-│   │       └── StatusBarController.swift   # Menu bar extra (status item) with reactive bindings
+│   │   │   ├── AlbumArtView.swift
+│   │   │   ├── AppleMusicSlider.swift
+│   │   │   ├── AppleNotchShape.swift
+│   │   │   ├── AudioVisualizerSymbolView.swift
+│   │   │   ├── CompactNotchView.swift
+│   │   │   ├── ExpandedNotchView.swift
+│   │   │   ├── LiquidGlassBackground.swift
+│   │   │   ├── LyricsView.swift
+│   │   │   ├── MediaControlsView.swift
+│   │   │   ├── NotchRootView.swift
+│   │   │   └── ScrubberBarView.swift
+│   │   └── Window/
+│   │       ├── NotchPanel.swift
+│   │       └── NotchWindowController.swift
 │   ├── NotchApp/
-│   │   └── NotchApp.swift           # Application entry point (@main)
+│   │   └── NotchApp.swift
 │   └── NotchTestRunner/
-│       └── Main.swift               # Comprehensive unit & integration test runner (6 suites)
+│       └── Main.swift
 ```
+
+### Module Responsibilities
+
+#### Geometry and Display Management (`Sources/NotchKit/Geometry/`)
+- `ScreenNotchManager.swift`: Queries active screen parameters, checks `safeAreaInsets.top` to identify physical notch presence, translates auxiliary area frames into global coordinates, and publishes `NotchGeometry` state changes.
+- `NotchGeometry`: Immutable struct encapsulating screen bounds, notch dimensions, wing offsets, compact frame bounds, expanded frame bounds, and overall bounding window frames.
+
+#### Windowing and Event Handling (`Sources/NotchKit/Window/`)
+- `NotchPanel.swift`: Custom `NSPanel` subclass configured with style masks `[.borderless, .nonactivatingPanel]`, floating at window level `.screenSaver`. Conforms to `.canJoinAllSpaces`, `.fullScreenAuxiliary`, and `.stationary` collection behaviors to maintain persistence across Spaces and fullscreen applications.
+- `NotchWindowController.swift`: Coordinates window frames, binds view-model events, handles space transition notifications (`NSWorkspace.activeSpaceDidChangeNotification`), and manages key window focus.
+- `NotchPassthroughHostingView`: Overrides AppKit `hitTest(_:)` against a dynamically computed interactive rectangle, passing non-interactive transparent points through to underlying macOS windows.
+
+#### Continuous Curvature Rendering (`Sources/NotchKit/Views/`)
+- `AppleNotchShape.swift`: Custom SwiftUI `InsettableShape` constructing Apple-standard continuous G2 squircle curves. Implements cubic Bézier formulas using the Apple squircle curvature constant `k = 0.55228475`. Generates concave top fillets ("ears") meeting the display bezel flush at `(minX, minY)` and `(maxX, minY)`, alongside squircle bottom corners. Supports animatable radii for state transitions.
+- `LiquidGlassBackground.swift`: Dual-layer background rendering a solid pitch-black foundation bordered by a subtle multi-stop specular gradient rim along the bottom contour.
+- `CompactNotchView.swift`: Compact wing layout housing an album art miniature on the left wing and an animated audio playback indicator (`AudioVisualizerSymbolView`) on the right wing, positioned around the hardware cutout.
+- `ExpandedNotchView.swift`: Two-column split layout for synchronized lyrics mode alongside hero artwork and metadata, or a centered layout when lyrics are disabled.
+- `AppleMusicSlider.swift`: Custom slider implementation featuring interactive hit-target expansion from 7pt to 14pt during drag gestures with spring recovery.
+
+#### Media Integration and Script Engine (`Sources/NotchKit/Media/`)
+- `AppleScriptRunner.swift`: Thread-safe execution wrapper maintaining a pre-compiled `NSAppleScript` cache (bounded to 20 instances) evaluated on a dedicated serial background dispatch queue (`com.notch.applescript`).
+- `AppleMusicService.swift`: Handles AppleScript queries for player state, track titles, artists, albums, duration, player positions, shuffle, repeat, and volume. Album art is extracted via AppleScript raw data descriptor handles and decoded on a dedicated utility queue.
+- `SpotifyService.swift`: Controls Spotify via AppleScript, extracting metadata and remote artwork URLs for asynchronous image fetching.
+- `TrackInfo.swift`: Data representation of track metadata, remote URLs, and embedded raw artwork bytes. Implements image downsampling using ImageIO (`CGImageSourceCreateThumbnailAtIndex`) capped at 160px to maintain minimal heap allocations.
+- `UnifiedMediaManager.swift`: Aggregates player services, normalizes volume and mute states, and drives progress tracking. Throttles timer ticks from 60 Hz during expanded state to 1 Hz when collapsed, disabling visualizer computation during collapse to conserve battery.
+
+#### Lyrics Engine (`Sources/NotchKit/Lyrics/`)
+- `LRCParser.swift`: Regular expression parser supporting standard and high-precision LRC timestamp formats (`[mm:ss.xx]`, `[mm:ss.xxx]`, and `[mm:ss]`). Extracts millisecond timecodes, sorts chronologically, filters whitespace lines, and generates sequential identifiers.
+- `LyricsService.swift`: Network actor managing requests to `https://lrclib.net/api/get`. Implements title and artist sanitization (stripping remastered, featured artist tags, and edition markers), executes binary search for active lyric lines, and manages a 50-track in-memory cache.
+
+#### Global Shortcuts and Status Item (`Sources/NotchKit/App/`)
+- `HotKeyManager.swift`: Encapsulates Carbon `RegisterEventHotKey` APIs to register system-wide key combinations without requiring Accessibility permissions.
+- `StatusBarController.swift`: Manages the `NSStatusItem` in the macOS menu bar, updating toggle states for pin mode, lyrics visibility, and overlay status.
 
 ---
 
-## 🚀 Getting Started
+## Technical Specifications
+
+| Parameter | Specification |
+|---|---|
+| Platform Requirement | macOS 14.0 (Sonoma) or later |
+| Supported Architectures | Apple Silicon (arm64), Intel (x86_64) |
+| Toolchain | Swift 6.0 |
+| Window Level | `NSWindow.Level.screenSaver` |
+| Window Style Mask | `[.borderless, .nonactivatingPanel]` |
+| Application Policy | `LSUIElement = true` (`.accessory`) |
+| Expanded Canvas Dimensions | 520pt × 290pt |
+| Compact Corner Radius | 16pt (Apple continuous squircle) |
+| Expanded Corner Radius | 20pt (Apple continuous squircle) |
+| Curvature Constant (k) | 0.55228475 |
+| Collapse Exit Debounce | 0.45 seconds |
+| Lyric Anticipation Offset | 0.35 seconds |
+| Lyric Cache Limit | 50 tracks (FIFO/LRU) |
+| AppleScript Cache Limit | 20 compiled scripts |
+| Artwork Thumbnail Max Size | 160px (ImageIO downsampled) |
+| Expanded Display Refresh | 60 Hz |
+| Collapsed Refresh Rate | 1 Hz |
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
-- macOS 14.0 or later (Tested on macOS 27.2 Apple Silicon)
-- Swift 6.0+ toolchain (`swift` / Command Line Tools)
+- macOS 14.0 or later
+- Swift 6.0 command-line tools installed (`xcode-select --install` or Xcode 16+)
 
-### Building and Running
+### Running in Development
 
-1. **Run in development mode**:
-   ```bash
-   swift run Notch
-   ```
+Execute the executable target directly via the Swift Package Manager:
 
-2. **Run all automated tests**:
-   ```bash
-   swift run NotchTestRunner
-   ```
+```bash
+swift run Notch
+```
 
-3. **Build the standalone native `Notch.app` bundle**:
-   ```bash
-   ./scripts/build_app.sh
-   open Notch.app
-   ```
+### Running the Test Suite
+
+Execute the standalone test runner:
+
+```bash
+swift run NotchTestRunner
+```
+
+### Building the Standalone Application
+
+Package a native `.app` bundle signed with an ad-hoc signature:
+
+```bash
+./scripts/build_app.sh
+open Notch.app
+```
+
+The script builds a release binary (`swift build -c release`), creates the `Notch.app` bundle directory structure, injects `Info.plist` with required bundle keys (`LSUIElement`, `CFBundleIdentifier`, `NSAppleEventsUsageDescription`), copies application icons, and signs the bundle with `codesign`.
 
 ---
 
-## 🧪 Automated Test Verification
+## Automated Test Verification
 
-The test runner tests all core modules across 6 test suites:
-- **Geometry Suite**: Hardware notch positioning, horizontal centering on notch midX, flush alignment with screen top, and display fallback positioning.
-- **Simulated Media Suite**: Playlist sequencing, play/pause toggles, track advancement and looping, forward/backward seek bounds clamping, rewind logic, and volume/mute handling.
-- **Unified Media Manager Suite**: Service routing, source selection, auto-detection without state desynchronization, 12-band audio amplitude generation, and volume forwarding.
-- **ViewModel Suite**: Hover states, pin states, collapse hover suppression, volume & mute reactive bindings, expansion logic, and time string formatting (`m:ss` and `-m:ss`).
-- **View Layout Suite**: Verifies fitting sizes for both `CompactNotchView` and `ExpandedNotchView` against calculated window geometry frames to prevent control clipping.
-- **Panel & Key Suite**: Confirms non-activating key capability for UI controls and Escape key collapse handling.
+The included test runner (`NotchTestRunner`) executes 11 validation suites:
+
+1. **Geometry Suite**: Validates compact and expanded frame calculations, horizontal centering against notch midpoints, flush alignment with top screen edges, fallback positioning on non-notch displays, and multi-display coordinate translation across horizontal and vertical monitor offsets.
+2. **Apple Notch Shape and Liquid Glass Suite**: Validates squircle curvature paths, continuous fillet generation, inset stroke integrity, and background configuration.
+3. **Simulated Media Service Suite**: Verifies playlist playback, sequential track advancement, boundary clamping on forward and backward seeks, play/pause toggles, and volume and mute operations.
+4. **Unified Media Manager Suite**: Tests automated player routing, preference hierarchies between Spotify and Apple Music, manual source selection, and service delegation.
+5. **ViewModel Suite**: Tests hover detection, debounce invalidation, pin state toggling, keyboard collapse suppression, reactive volume synchronization, and timecode formatting.
+6. **View Layout Suite**: Measures `fittingSize` for `CompactNotchView` and `ExpandedNotchView` against calculated window geometry frames to verify layouts render within frame bounds without clipping.
+7. **Panel and Key Handling Suite**: Tests non-activating panel attributes, key event routing, Escape key collapse, and modifier key identification.
+8. **Performance, Battery, and Lifecycle Suite**: Validates timer throttling (1 Hz collapsed vs. 60 Hz expanded), visualizer deactivation when collapsed, and memory cleanup upon deinitialization.
+9. **Media Controls Suite**: Tests transport button actions, state bindings for shuffle and cyclic repeat modes, and layer-bounce trigger increments.
+10. **Status Bar Controller Suite**: Tests menu item hierarchy, reactive synchronization with view-model states, and Carbon global hotkey registrations.
+11. **Synchronized Lyrics Suite**: Verifies LRC string parsing across varied timestamp formats (`[mm:ss.xx]`, `[mm:ss.xxx]`, `[mm:ss]`), binary search position matching, three-line sliding window extraction, vocal anticipation offsets, cache eviction bounds, and instrumental track state transitions.
+
+---
+
+## License
+
+This project is licensed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.
