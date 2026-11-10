@@ -5,14 +5,14 @@ import QuartzCore
 @MainActor
 public final class SpotifyService: MediaServiceProtocol {
     public let source: MediaSource = .spotify
-    public static let bundleId = "com.spotify.client"
+    nonisolated public static let bundleId = "com.spotify.client"
 
     public var isAvailable: Bool {
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.bundleId) != nil
     }
 
-    public var isRunning: Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleId).isEmpty
+    nonisolated public var isRunning: Bool {
+        NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleId).contains { !$0.isTerminated }
     }
 
     public private(set) var currentTrack: TrackInfo?
@@ -36,10 +36,15 @@ public final class SpotifyService: MediaServiceProtocol {
     }
 
     isolated deinit {
-        pollTimer?.invalidate()
+        stopTimers()
         if let observerToken {
             DistributedNotificationCenter.default().removeObserver(observerToken)
         }
+    }
+
+    public func stopTimers() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     private func setupDistributedNotifications() {
@@ -47,9 +52,23 @@ public final class SpotifyService: MediaServiceProtocol {
             forName: NSNotification.Name("com.spotify.client.PlaybackStateChanged"),
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let state = notification.userInfo?["Player State"] as? String
             Task { @MainActor [weak self] in
-                self?.refreshState()
+                guard let self = self else { return }
+                if let state = state, state.lowercased() == "stopped" {
+                    self.isPlaying = false
+                    self.currentTrack = nil
+                    self.playbackPosition = 0.0
+                    return
+                }
+                guard self.isRunning else {
+                    self.isPlaying = false
+                    self.currentTrack = nil
+                    self.playbackPosition = 0.0
+                    return
+                }
+                self.refreshState()
             }
         }
     }
@@ -79,8 +98,11 @@ public final class SpotifyService: MediaServiceProtocol {
         isRefreshing = true
 
         let scriptText = """
-        tell application "Spotify"
-            if it is running then
+        tell application "System Events"
+            set isAppRunning to (name of processes) contains "Spotify"
+        end tell
+        if isAppRunning then
+            tell application "Spotify"
                 set isShuf to "false"
                 set isRep to "false"
                 try
@@ -123,15 +145,23 @@ public final class SpotifyService: MediaServiceProtocol {
                 else
                     return "stopped|||" & isShuf & "|||" & isRep
                 end if
-            else
-                return "not_running"
-            end if
-        end tell
+            end tell
+        else
+            return "not_running"
+        end if
         """
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self, self.isRunning else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.isRefreshing = false
+                    self?.isPlaying = false
+                    self?.currentTrack = nil
+                }
+                return
+            }
             let output = AppleScriptRunner.runSync(scriptText)
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.isRefreshing = false
                 guard let output = output, !output.isEmpty else { return }

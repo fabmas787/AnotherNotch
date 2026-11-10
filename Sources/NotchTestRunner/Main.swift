@@ -722,6 +722,7 @@ func runPerformanceAndLifecycleTests() {
     assertCondition(script1.contains("notch_artwork_cache.jpg"), "AppleMusicService artwork export script must use stable notch_artwork_cache.jpg")
     assertCondition(!script1.contains("notch_art_"), "AppleMusicService artwork export script must not contain dynamic UUID filename pattern")
     assertCondition(script1.contains("set eof f to 0"), "AppleMusicService artwork export script must truncate file before writing")
+    assertCondition(script1.contains("System Events"), "AppleMusicService artwork export script must guard against auto-launching via System Events")
     let outScript1 = AppleScriptRunner.runSync(script1)
     let outScript2 = AppleScriptRunner.runSync(script1)
     assertCondition(outScript1 == outScript2, "AppleScriptRunner must execute static artwork export script without cache busting")
@@ -777,6 +778,8 @@ func runPerformanceAndLifecycleTests() {
     assertCondition(vm.isExpanded, "ViewModel is expanded")
     vm.collapse()
     assertCondition(!vm.isExpanded, "ViewModel collapsed")
+    controller.panel?.close()
+    vm.mediaManager.stopTimers()
 
     print("✅ Performance, Battery & Lifecycle tests passed successfully.")
 }

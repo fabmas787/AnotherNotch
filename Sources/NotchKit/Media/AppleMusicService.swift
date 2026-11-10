@@ -5,14 +5,14 @@ import QuartzCore
 @MainActor
 public final class AppleMusicService: MediaServiceProtocol {
     public let source: MediaSource = .appleMusic
-    public static let bundleId = "com.apple.Music"
+    nonisolated public static let bundleId = "com.apple.Music"
 
     public var isAvailable: Bool {
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.bundleId) != nil
     }
 
-    public var isRunning: Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleId).isEmpty
+    nonisolated public var isRunning: Bool {
+        NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleId).contains { !$0.isTerminated }
     }
 
     public private(set) var currentTrack: TrackInfo?
@@ -37,10 +37,15 @@ public final class AppleMusicService: MediaServiceProtocol {
     }
 
     isolated deinit {
-        pollTimer?.invalidate()
+        stopTimers()
         if let observerToken {
             DistributedNotificationCenter.default().removeObserver(observerToken)
         }
+    }
+
+    public func stopTimers() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     private func setupDistributedNotifications() {
@@ -48,9 +53,23 @@ public final class AppleMusicService: MediaServiceProtocol {
             forName: NSNotification.Name("com.apple.Music.playerInfo"),
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let state = notification.userInfo?["Player State"] as? String
             Task { @MainActor [weak self] in
-                self?.refreshState()
+                guard let self = self else { return }
+                if let state = state, state.lowercased() == "stopped" {
+                    self.isPlaying = false
+                    self.currentTrack = nil
+                    self.playbackPosition = 0.0
+                    return
+                }
+                guard self.isRunning else {
+                    self.isPlaying = false
+                    self.currentTrack = nil
+                    self.playbackPosition = 0.0
+                    return
+                }
+                self.refreshState()
             }
         }
     }
@@ -80,8 +99,11 @@ public final class AppleMusicService: MediaServiceProtocol {
         isRefreshing = true
 
         let scriptText = """
-        tell application "Music"
-            if it is running then
+        tell application "System Events"
+            set isAppRunning to (name of processes) contains "Music"
+        end tell
+        if isAppRunning then
+            tell application "Music"
                 set isShuf to "false"
                 set sRep to "off"
                 try
@@ -132,15 +154,23 @@ public final class AppleMusicService: MediaServiceProtocol {
                 else
                     return "stopped|||" & isShuf & "|||" & sRep
                 end if
-            else
-                return "not_running"
-            end if
-        end tell
+            end tell
+        else
+            return "not_running"
+        end if
         """
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self, self.isRunning else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.isRefreshing = false
+                    self?.isPlaying = false
+                    self?.currentTrack = nil
+                }
+                return
+            }
             let output = AppleScriptRunner.runSync(scriptText)
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.isRefreshing = false
                 guard let output = output, !output.isEmpty else { return }
@@ -234,29 +264,36 @@ public final class AppleMusicService: MediaServiceProtocol {
     nonisolated public static let artworkCacheURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("notch_artwork_cache.jpg")
 
     nonisolated public static let artworkExportScript = """
-    tell application "Music"
-        set f to 0
-        try
-            if (count of artworks of current track) > 0 then
-                set art to artwork 1 of current track
-                set rawData to raw data of art
-                set artPath to "\(AppleMusicService.artworkCacheURL.path)"
-                set f to open for access (POSIX file artPath) with write permission
-                set eof f to 0
-                write rawData to f
-                close access f
-                set f to 0
-                return artPath
-            end if
-        on error
-            if f is not 0 then
-                try
-                    close access f
-                end try
-            end if
-        end try
-        return ""
+    tell application "System Events"
+        set isAppRunning to (name of processes) contains "Music"
     end tell
+    if isAppRunning then
+        tell application "Music"
+            set f to 0
+            try
+                if (count of artworks of current track) > 0 then
+                    set art to artwork 1 of current track
+                    set rawData to raw data of art
+                    set artPath to "\(AppleMusicService.artworkCacheURL.path)"
+                    set f to open for access (POSIX file artPath) with write permission
+                    set eof f to 0
+                    write rawData to f
+                    close access f
+                    set f to 0
+                    return artPath
+                end if
+            on error
+                if f is not 0 then
+                    try
+                        close access f
+                    end try
+                end if
+            end try
+            return ""
+        end tell
+    else
+        return ""
+    end if
     """
 
     nonisolated public static func makeThumbnailTrack(from track: TrackInfo, artworkData: Data, thumbImage: NSImage? = nil) -> TrackInfo {
@@ -277,17 +314,19 @@ public final class AppleMusicService: MediaServiceProtocol {
     }
 
     private func fetchArtworkAsync(expectedTrackKey: String) {
+        guard isRunning else { return }
         let tempURL = Self.artworkCacheURL
         let exportScript = Self.artworkExportScript
 
         artworkQueue.async { [weak self] in
+            guard let self = self, self.isRunning else { return }
             defer {
                 try? FileManager.default.removeItem(at: tempURL)
             }
             let path = AppleScriptRunner.runSync(exportScript)?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let path = path, !path.isEmpty, let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
                 let thumb = TrackInfo.downsampledImage(from: data, maxDimension: 160)
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     guard let self = self, self.lastArtworkTrackId == expectedTrackKey, let track = self.currentTrack else { return }
                     self.currentTrack = Self.makeThumbnailTrack(from: track, artworkData: data, thumbImage: thumb)
                 }

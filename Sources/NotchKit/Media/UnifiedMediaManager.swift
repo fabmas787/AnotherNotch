@@ -64,6 +64,8 @@ public final class UnifiedMediaManager: ObservableObject {
         visualizerTimer = nil
         directionResetTask?.cancel()
         directionResetTask = nil
+        appleMusicService.stopTimers()
+        spotifyService.stopTimers()
     }
 
     isolated deinit {
