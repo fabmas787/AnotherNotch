@@ -28,6 +28,7 @@ public final class AppleMusicService: MediaServiceProtocol {
     private var isRefreshing: Bool = false
     private var lastArtworkTrackId: String = ""
     private var lastUserInteractionTime: CFTimeInterval = 0.0
+    private let artworkQueue = DispatchQueue(label: "com.notch.applemusic.artwork", qos: .utility)
 
     public init() {
         setupDistributedNotifications()
@@ -279,7 +280,7 @@ public final class AppleMusicService: MediaServiceProtocol {
         let tempURL = Self.artworkCacheURL
         let exportScript = Self.artworkExportScript
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        artworkQueue.async { [weak self] in
             defer {
                 try? FileManager.default.removeItem(at: tempURL)
             }

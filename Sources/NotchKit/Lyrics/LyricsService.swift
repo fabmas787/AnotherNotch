@@ -271,18 +271,31 @@ public final class LyricsService: ObservableObject {
         }
     }
 
+    private static let bracketedNoiseRegex = try? NSRegularExpression(
+        pattern: #"\s*[\(\[][^()\[\]]*(?:\bfeat\b|\bft\b|remaster|deluxe|version|edit|mono|stereo)[^()\[\]]*[\)\]]"#,
+        options: .caseInsensitive
+    )
+    private static let unbracketedFeatRegex = try? NSRegularExpression(
+        pattern: #"\s*(?:-|–)?\s*\b(?:feat|ft)\.?(?:\s+.*$)"#,
+        options: .caseInsensitive
+    )
+    private static let trailingEditRegex = try? NSRegularExpression(
+        pattern: #"\s*(?:-|–)\s*(?:Radio Edit|Remaster(?:ed)?(?:\s*\d+)?).*$"#,
+        options: .caseInsensitive
+    )
+
     public func sanitize(_ string: String) -> String {
         var clean = string
         // 1. Bracketed noise: (feat. ...), [Remastered], etc.
-        if let regex = try? NSRegularExpression(pattern: #"\s*[\(\[][^()\[\]]*(?:\bfeat\b|\bft\b|remaster|deluxe|version|edit|mono|stereo)[^()\[\]]*[\)\]]"#, options: .caseInsensitive) {
+        if let regex = Self.bracketedNoiseRegex {
             clean = regex.stringByReplacingMatches(in: clean, range: NSRange(location: 0, length: (clean as NSString).length), withTemplate: "")
         }
         // 2. Unbracketed featuring credits: " - feat. ...", " ft. ...", " feat ..."
-        if let regex = try? NSRegularExpression(pattern: #"\s*(?:-|–)?\s*\b(?:feat|ft)\.?(?:\s+.*$)"#, options: .caseInsensitive) {
+        if let regex = Self.unbracketedFeatRegex {
             clean = regex.stringByReplacingMatches(in: clean, range: NSRange(location: 0, length: (clean as NSString).length), withTemplate: "")
         }
         // 3. Trailing "- Radio Edit", "- Remastered ...", etc.
-        if let regex = try? NSRegularExpression(pattern: #"\s*(?:-|–)\s*(?:Radio Edit|Remaster(?:ed)?(?:\s*\d+)?).*$"#, options: .caseInsensitive) {
+        if let regex = Self.trailingEditRegex {
             clean = regex.stringByReplacingMatches(in: clean, range: NSRange(location: 0, length: (clean as NSString).length), withTemplate: "")
         }
         return clean.trimmingCharacters(in: .whitespacesAndNewlines)

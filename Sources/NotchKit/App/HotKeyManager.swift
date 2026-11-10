@@ -66,8 +66,6 @@ public final class HotKeyManager {
     public func register(keyCode: UInt32, modifiers: UInt32, action: @escaping () -> Void) {
         let id = nextId
         nextId += 1
-        handlers[id] = action
-        registrations.append(Registration(keyCode: keyCode, modifiers: modifiers))
 
         let hotKeyID = EventHotKeyID(signature: 0x4E544348, id: id) // "NTCH"
         var hotKeyRef: EventHotKeyRef?
@@ -79,8 +77,12 @@ public final class HotKeyManager {
             0,
             &hotKeyRef
         )
-        if status == noErr, let ref = hotKeyRef {
-            hotKeyRefs.append(ref)
+        if status == noErr {
+            handlers[id] = action
+            registrations.append(Registration(keyCode: keyCode, modifiers: modifiers))
+            if let ref = hotKeyRef {
+                hotKeyRefs.append(ref)
+            }
         }
     }
 
