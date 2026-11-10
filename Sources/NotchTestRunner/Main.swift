@@ -239,8 +239,8 @@ func runUnifiedMediaManagerTests() {
     manager.selectedSource = .auto
     assertCondition(manager.effectiveService.source == .demo || manager.effectiveService.source == .appleMusic || manager.effectiveService.source == .spotify, "Auto source must pick an available service")
     assertCondition(manager.currentTrack != nil, "Auto source must have a valid current track")
-    if manager.spotifyService.isAvailable && !manager.appleMusicService.isPlaying {
-        assertCondition(manager.effectiveService.source == .spotify, "Auto selection should prefer Spotify when available and Apple Music is not playing")
+    if manager.spotifyService.isAvailable && !manager.appleMusicService.isRunning {
+        assertCondition(manager.effectiveService.source == .spotify, "Auto selection should prefer Spotify when available and Apple Music is not running")
     }
 
     // Test 6: Smooth monotonic progress without backward stuttering
