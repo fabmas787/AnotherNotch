@@ -73,16 +73,12 @@ public struct CompactNotchView: View {
             }
             .frame(width: notchWidth, height: notchHeight)
 
-            // Right Wing: Centered Playing Status Visualizer or Dot Indicator
+            // Right Wing: Centered Playing Status Indicator
             ZStack {
-                if isPlaying {
-                    AudioVisualizerSymbolView(isPlaying: isPlaying)
-                } else {
-                    Circle()
-                        .fill(Color.white.opacity(0.35))
-                        .frame(width: 5.5, height: 5.5)
-                }
+                AudioVisualizerSymbolView(isPlaying: isPlaying)
+                    .opacity(hasPhysicalNotch || isPlaying ? 1.0 : 0.4)
             }
+            .animation(.easeInOut(duration: 0.25), value: isPlaying)
             .frame(width: wingWidth, height: notchHeight, alignment: .center)
         }
     }

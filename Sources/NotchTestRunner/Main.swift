@@ -840,7 +840,7 @@ func runMediaControlsTests() {
     assertCondition(vm.nextBounceTrigger == 0, "Initial nextBounceTrigger should be 0")
     assertCondition(vm.prevBounceTrigger == 0, "Initial prevBounceTrigger should be 0")
 
-    // Test 2: RepeatMode 3-state cycling: off -> all -> one -> off
+    // Test 2: RepeatMode 3-state cycling: off -> all -> one -> off (Demo & Apple Music)
     vm.cycleRepeatMode()
     assertCondition(vm.repeatMode == .all, "Cycling repeat mode from off should set to .all")
 
@@ -849,6 +849,15 @@ func runMediaControlsTests() {
 
     vm.cycleRepeatMode()
     assertCondition(vm.repeatMode == .off, "Cycling repeat mode from one should cycle back to .off")
+
+    // Test 2b: SpotifyService 2-state repeat cycling (off <-> all)
+    let spotifyService = SpotifyService()
+    spotifyService.setRepeatMode(.off)
+    assertCondition(spotifyService.repeatMode == .off, "SpotifyService initial repeatMode should be .off")
+    spotifyService.cycleRepeatMode()
+    assertCondition(spotifyService.repeatMode == .all, "Cycling SpotifyService repeat mode from off should set to .all")
+    spotifyService.cycleRepeatMode()
+    assertCondition(spotifyService.repeatMode == .off, "Cycling SpotifyService repeat mode from all should cycle back to .off")
 
     // Test 3: Shuffle toggle
     vm.toggleShuffle()

@@ -153,6 +153,12 @@ public final class NotchViewModel: ObservableObject {
         }
     }
 
+    public func clearHoverSuppression() {
+        exitDebounceTimer?.invalidate()
+        exitDebounceTimer = nil
+        isHoverSuppressed = false
+    }
+
     public func toggleMute() {
         self.isMuted.toggle()
     }

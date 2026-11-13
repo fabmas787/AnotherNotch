@@ -83,13 +83,20 @@ public final class NotchWindowController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Ensure notch stays frontmost across space and full-screen transitions
-        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.activeSpaceDidChangeNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.panel?.orderFrontRegardless()
-            }
-            .store(in: &cancellables)
+        // Ensure notch stays frontmost across space and full-screen transitions and app activations
+        let workspaceNC = NSWorkspace.shared.notificationCenter
+        Publishers.Merge3(
+            workspaceNC.publisher(for: NSWorkspace.activeSpaceDidChangeNotification),
+            workspaceNC.publisher(for: NSWorkspace.didActivateApplicationNotification),
+            workspaceNC.publisher(for: NSWorkspace.didDeactivateApplicationNotification)
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            guard let self = self else { return }
+            self.panel?.orderFrontRegardless()
+            self.viewModel.clearHoverSuppression()
+        }
+        .store(in: &cancellables)
 
         // Become key only when pinned to intercept Escape key, preventing hover from stealing focus from other apps
         viewModel.$isPinned

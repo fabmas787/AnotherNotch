@@ -345,18 +345,21 @@ public final class AppleMusicService: MediaServiceProtocol {
             launchPlayer()
             return
         }
+        self.lastUserInteractionTime = CACurrentMediaTime()
         AppleScriptRunner.runAsync("tell application \"Music\" to playpause")
         isPlaying.toggle()
     }
 
     public func nextTrack() {
         guard isRunning else { return }
+        self.lastUserInteractionTime = CACurrentMediaTime()
         AppleScriptRunner.runAsync("tell application \"Music\" to next track")
         refreshState()
     }
 
     public func previousTrack() {
         guard isRunning else { return }
+        self.lastUserInteractionTime = CACurrentMediaTime()
         AppleScriptRunner.runAsync("tell application \"Music\" to previous track")
         refreshState()
     }

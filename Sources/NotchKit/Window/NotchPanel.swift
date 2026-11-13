@@ -12,13 +12,14 @@ public final class NotchPanel: NSPanel {
         self.isOpaque = false
         self.backgroundColor = .clear
         self.hasShadow = false
+        self.isFloatingPanel = true
         self.level = .screenSaver
         self.collectionBehavior = [
             .canJoinAllSpaces,
             .fullScreenAuxiliary,
-            .stationary,
             .ignoresCycle
         ]
+        self.acceptsMouseMovedEvents = true
         self.isMovable = false
         self.isMovableByWindowBackground = false
         self.hidesOnDeactivate = false

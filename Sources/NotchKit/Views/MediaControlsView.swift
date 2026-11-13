@@ -51,7 +51,6 @@ public struct MediaControlsView: View {
                     .font(.system(size: 36, weight: .semibold, design: .default)) // Larger size for primary control
                     .foregroundStyle(.white)
                     .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.bounce.down.byLayer, options: .nonRepeating, value: viewModel.playPauseBounceTrigger)
             }
             .help(isPlaying ? "Pause" : "Play")
 

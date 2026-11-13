@@ -8,15 +8,15 @@ public struct AudioVisualizerSymbolView: View {
     }
 
     public var body: some View {
-        if #available(macOS 26.0, *) {
-            Image(systemName: "timelapse")
-                .font(.system(size: 20, weight: .semibold, design: .default))
-                .foregroundStyle(.white)
-                .symbolEffect(.drawOn.wholeSymbol, options: .nonRepeating, isActive: isPlaying)
+        if #available(macOS 14.0, *) {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(isPlaying ? Color.white : Color.white.opacity(0.4))
+                .symbolEffect(.variableColor.iterative.reversing, options: .repeating, isActive: isPlaying)
         } else {
-            Image(systemName: "timelapse")
-                .font(.system(size: 20, weight: .semibold, design: .default))
-                .foregroundStyle(.white)
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(isPlaying ? Color.white : Color.white.opacity(0.4))
         }
     }
 }

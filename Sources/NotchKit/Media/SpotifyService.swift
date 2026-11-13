@@ -228,17 +228,13 @@ public final class SpotifyService: MediaServiceProtocol {
                     )
                 }
 
-                if (CACurrentMediaTime() - self.lastUserInteractionTime) > 1.0 {
+                if (CACurrentMediaTime() - self.lastUserInteractionTime) > 1.8 {
                     if let isShufStr = isShufStr {
                         self.isShuffleActive = (isShufStr.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true")
                     }
                     if let isRepStr = isRepStr {
                         let isRepeating = (isRepStr.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true")
-                        if !isRepeating {
-                            self.repeatMode = .off
-                        } else if self.repeatMode == .off {
-                            self.repeatMode = .all
-                        }
+                        self.repeatMode = isRepeating ? .all : .off
                     }
                 }
             }
@@ -256,18 +252,21 @@ public final class SpotifyService: MediaServiceProtocol {
             launchPlayer()
             return
         }
+        self.lastUserInteractionTime = CACurrentMediaTime()
         AppleScriptRunner.runAsync("tell application \"Spotify\" to playpause")
         isPlaying.toggle()
     }
 
     public func nextTrack() {
         guard isRunning else { return }
+        self.lastUserInteractionTime = CACurrentMediaTime()
         AppleScriptRunner.runAsync("tell application \"Spotify\" to next track")
         refreshState()
     }
 
     public func previousTrack() {
         guard isRunning else { return }
+        self.lastUserInteractionTime = CACurrentMediaTime()
         AppleScriptRunner.runAsync("tell application \"Spotify\" to previous track")
         refreshState()
     }
@@ -312,11 +311,17 @@ public final class SpotifyService: MediaServiceProtocol {
     }
 
     public func setRepeatMode(_ mode: RepeatMode) {
-        self.repeatMode = mode
+        let resolvedMode: RepeatMode = (mode == .off) ? .off : .all
+        self.repeatMode = resolvedMode
         self.lastUserInteractionTime = CACurrentMediaTime()
         guard isRunning else { return }
-        let repBool = (mode != .off)
+        let repBool = (resolvedMode != .off)
         let script = "tell application \"Spotify\" to set repeating to \(repBool ? "true" : "false")"
         AppleScriptRunner.runAsync(script)
+    }
+
+    public func cycleRepeatMode() {
+        let next: RepeatMode = (repeatMode == .off) ? .all : .off
+        setRepeatMode(next)
     }
 }
